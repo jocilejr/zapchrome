@@ -413,14 +413,168 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return messages;
   }
 
+  getMessageIdFromElement(messageElement) {
+    if (!messageElement) return null;
+
+    const directId = messageElement.dataset?.id || messageElement.getAttribute?.('data-id');
+    if (directId) return directId;
+
+    const nestedWithId = messageElement.querySelector?.('[data-id]');
+    if (nestedWithId) {
+      return nestedWithId.dataset?.id || nestedWithId.getAttribute('data-id');
+    }
+
+    const ariaOwns = messageElement.getAttribute?.('aria-owns');
+    if (ariaOwns) return ariaOwns;
+
+    return null;
+  }
+
+  async ensureWhatsAppStore() {
+    if (this._whatsAppStorePromise) {
+      return this._whatsAppStorePromise;
+    }
+
+    if (window.Store?.Msg) {
+      this._whatsAppStorePromise = Promise.resolve(window.Store);
+      return this._whatsAppStorePromise;
+    }
+
+    const promise = new Promise((resolve, reject) => {
+      const chunk = window.webpackChunkwhatsapp_web_client;
+      if (!chunk || typeof chunk.push !== 'function') {
+        reject(new Error('webpackChunkwhatsapp_web_client não encontrado'));
+        return;
+      }
+
+      const moduleId = `__wa_store_${Date.now()}`;
+
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout ao carregar Store do WhatsApp'));
+      }, 5000);
+
+      try {
+        chunk.push([
+          [moduleId],
+          {},
+          function (o, exports, __webpack_require__) {
+            try {
+              const moduleMap = __webpack_require__?.m || {};
+              for (const key of Object.keys(moduleMap)) {
+                try {
+                  const module = __webpack_require__(key);
+                  const candidate = module?.default?.Msg ? module.default : module;
+                  if (candidate?.Msg) {
+                    window.Store = candidate;
+                    clearTimeout(timeout);
+                    resolve(candidate);
+                    return;
+                  }
+                } catch (innerError) {
+                  console.warn('[WhatsApp AI] Erro ao avaliar módulo WhatsApp', innerError);
+                }
+              }
+              clearTimeout(timeout);
+              reject(new Error('Store.Msg não encontrado nos módulos do WhatsApp'));
+            } catch (error) {
+              clearTimeout(timeout);
+              reject(error);
+            }
+          }
+        ]);
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+
+    this._whatsAppStorePromise = promise.catch(error => {
+      this._whatsAppStorePromise = null;
+      throw error;
+    });
+
+    return this._whatsAppStorePromise;
+  }
+
+  async getWhatsAppMessageById(messageId) {
+    try {
+      const store = await this.ensureWhatsAppStore();
+      if (!store?.Msg) return null;
+      const message = store.Msg.get?.(messageId) || store.Msg.find?.(msg => msg?.id?._serialized === messageId || msg?.id === messageId);
+      return message || null;
+    } catch (error) {
+      console.warn('[WhatsApp AI] Não foi possível obter Store.Msg', error);
+      return null;
+    }
+  }
+
   async transcribeAudio(messageElement) {
     console.log('[WhatsApp AI] === INICIANDO TRANSCRIÇÃO DE ÁUDIO ===');
-    
+
     try {
+      const messageId = this.getMessageIdFromElement(messageElement);
+      if (messageId) {
+        console.log(`[WhatsApp AI] Tentando obter mídia via Store para mensagem ${messageId}`);
+        try {
+          const storeMessage = await this.getWhatsAppMessageById(messageId);
+          if (storeMessage?.mediaData) {
+            if (!storeMessage.mediaData.mediaBlob && !storeMessage.mediaData._mediaBlob && !storeMessage.mediaData.blob) {
+              console.log('[WhatsApp AI] Blob não carregado, tentando download interno...');
+              try {
+                if (typeof storeMessage.downloadMedia === 'function') {
+                  await storeMessage.downloadMedia();
+                } else {
+                  throw new Error('Método downloadMedia indisponível');
+                }
+              } catch (downloadError) {
+                console.warn('[WhatsApp AI] Falha ao baixar mídia internamente', downloadError);
+                this.showNotification('⚠️ Não foi possível baixar o áudio internamente. Tentando métodos alternativos...', 'warning');
+              }
+            }
+
+            const internalBlob =
+              storeMessage.mediaData.mediaBlob ||
+              storeMessage.mediaData._mediaBlob ||
+              storeMessage.mediaData.blob ||
+              storeMessage.mediaData.file ||
+              storeMessage.mediaData?.mediaBlobUrl;
+
+            let blobForProcessing = null;
+            if (internalBlob instanceof Blob) {
+              blobForProcessing = internalBlob;
+            } else if (internalBlob?.blob instanceof Blob) {
+              blobForProcessing = internalBlob.blob;
+            } else if (typeof internalBlob === 'string' && internalBlob.startsWith('blob:')) {
+              console.log('[WhatsApp AI] URL de blob interno encontrada');
+              return await this.processAudioBlob(internalBlob);
+            }
+
+            if (blobForProcessing) {
+              console.log('[WhatsApp AI] Áudio obtido via Store');
+              const audioFile = blobForProcessing instanceof File
+                ? blobForProcessing
+                : new File([blobForProcessing], 'whatsapp-audio.ogg', {
+                    type: blobForProcessing.type || storeMessage.mediaData?.type || 'audio/ogg'
+                  });
+
+              const objectUrl = URL.createObjectURL(audioFile);
+              try {
+                return await this.processAudioBlob(objectUrl);
+              } finally {
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+              }
+            }
+          }
+        } catch (storeError) {
+          console.warn('[WhatsApp AI] Falha ao obter mídia via Store', storeError);
+          this.showNotification('⚠️ Não foi possível acessar o áudio internamente. Tentando métodos alternativos...', 'warning');
+        }
+      }
+
       // Método 1: Buscar elemento audio diretamente na mensagem
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
-      
+
       if (audioElement && audioElement.src && audioElement.src.startsWith('blob:')) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${audioElement.src.substring(0, 50)}...`);
         return await this.processAudioBlob(audioElement.src);
@@ -513,7 +667,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
   async processAudioBlob(blobUrl) {
     console.log(`[WhatsApp AI] === PROCESSANDO BLOB DE ÁUDIO ===`);
     console.log(`[WhatsApp AI] URL: ${blobUrl.substring(0, 50)}...`);
-    
+
     try {
       // Fazer fetch do blob
       console.log('[WhatsApp AI] Fazendo fetch do blob...');
