@@ -122,14 +122,63 @@ async function debugTranscricaoCompleto() {
       console.log(`URL: ${audioInMsg.src || 'SEM SRC'}`);
       console.log(`Tipo: ${audioInMsg.type || 'SEM TIPO'}`);
     }
-    
+
+    if (
+      window.whatsappAI &&
+      typeof window.whatsappAI.getMessageIdFromElement === 'function'
+    ) {
+      const messageId = window.whatsappAI.getMessageIdFromElement(lastAudioMsg);
+      if (messageId) {
+        console.log(`🆔 ID da mensagem: ${messageId}`);
+
+        if (typeof window.whatsappAI.getWhatsAppMessageById === 'function') {
+          console.log('🧪 Solicitando GET_AUDIO_BLOB via bridge do Store...');
+          try {
+            const helperResponse = await window.whatsappAI.getWhatsAppMessageById(messageId);
+            const normalizedBlob =
+              typeof window.whatsappAI.normalizeHelperBlob === 'function'
+                ? window.whatsappAI.normalizeHelperBlob(
+                    helperResponse?.blob,
+                    helperResponse?.metadata?.mimeType
+                  )
+                : helperResponse?.blob;
+
+            if (normalizedBlob instanceof Blob) {
+              console.log(
+                `✅ GET_AUDIO_BLOB OK - ${normalizedBlob.size} bytes (${normalizedBlob.type ||
+                  helperResponse?.metadata?.mimeType ||
+                  'tipo desconhecido'})`
+              );
+            } else if (normalizedBlob) {
+              console.log('⚠️ GET_AUDIO_BLOB retornou valor não-Blob, tentando inspecionar...');
+              console.log(normalizedBlob);
+            } else {
+              console.error('❌ GET_AUDIO_BLOB não retornou blob válido');
+            }
+          } catch (error) {
+            console.error('❌ Erro ao obter blob via bridge:', error);
+          }
+        } else {
+          console.warn('⚠️ Método getWhatsAppMessageById não disponível na instância whatsappAI');
+        }
+      } else {
+        console.warn('⚠️ Não foi possível determinar o ID da mensagem de áudio');
+      }
+    } else {
+      console.warn('⚠️ Instância whatsappAI não expõe método getMessageIdFromElement');
+    }
+
     // Tentar transcrição real
     console.log('\n🎯 TESTANDO TRANSCRIÇÃO REAL...');
     try {
       const transcricao = await window.whatsappAI.transcribeAudio(lastAudioMsg);
       console.log(`✅ SUCESSO: "${transcricao}"`);
     } catch (error) {
-      console.error(`❌ ERRO: ${error.message}`);
+      if (error?.message?.includes('Nenhum arquivo de áudio encontrado')) {
+        console.error('❌ ERRO: Nenhum arquivo de áudio encontrado durante a transcrição');
+      } else {
+        console.error(`❌ ERRO: ${error.message}`);
+      }
       console.error('Stack trace:', error);
     }
   }
