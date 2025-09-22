@@ -644,10 +644,14 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
+update-audio-processing-functions-egcq32
+
       const directAudioSrc = this.resolveAudioSource(audioElement);
       if (directAudioSrc) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
         return await this.processAudioBlob(directAudioSrc);
+update-audio-processing-functions-egcq32
+
       }
 
       // Método 2: Buscar na estrutura do WhatsApp sem reproduzir
@@ -693,6 +697,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     ].filter(Boolean);
 
     for (const container of possibleContainers) {
+update-audio-processing-functions-egcq32
       const directAudio = container.querySelector('audio');
       const directSrc = this.resolveAudioSource(directAudio);
       if (directAudio && directSrc) {
@@ -714,6 +719,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       if (linkWithMedia && linkSrc) {
         console.log('[WhatsApp AI] Áudio encontrado via atributo de mídia');
         return { src: linkSrc, element: linkWithMedia };
+
       }
     }
 
@@ -722,6 +728,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
+update-audio-processing-functions-egcq32
 
     const audioElements = document.querySelectorAll('audio, source[src], source[data-src]');
     const allAudios = Array.from(audioElements).map(element => ({
@@ -731,6 +738,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         : this.resolveElementUrl(element)
     })).filter(item => !!item.src);
     console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
+
 
     if (allAudios.length === 0) return null;
 
@@ -750,6 +758,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
+update-audio-processing-functions-egcq32
 
       const nearbySrc = this.resolveAudioSource(nearbyAudio);
       if (nearbyAudio && nearbySrc) {
@@ -850,6 +859,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       const resolved = this.resolveElementUrl(sourceElement);
       if (resolved) {
         return resolved;
+
       }
     }
 
