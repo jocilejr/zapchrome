@@ -457,9 +457,9 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         chunk.push([
           [moduleId],
           {},
-          function (o, exports, __webpack_require__) {
+          (__webpack_require__) => {
             try {
-              const moduleMap = __webpack_require__?.m || {};
+              const moduleMap = __webpack_require__.m || {};
               for (const key of Object.keys(moduleMap)) {
                 try {
                   const module = __webpack_require__(key);
