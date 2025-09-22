@@ -56,7 +56,16 @@ class WhatsAppAIAssistant {
 
   checkConversationState() {
     console.log('[WhatsApp AI] Verificando estado da conversa...');
-    
+
+    const bodyHasContains = typeof document?.body?.contains === 'function';
+    const buttonMissing = !this.button || (bodyHasContains && !document.body.contains(this.button));
+
+    if (buttonMissing) {
+      console.log('[WhatsApp AI] Botão ausente no DOM, recriando...');
+      this.button = null;
+      this.createFloatingButton();
+    }
+
     // Seletores simples e eficazes
     const inputSelectors = [
       '[data-testid="compose-box-input"]',
@@ -176,7 +185,8 @@ class WhatsAppAIAssistant {
       audioCount = messages.filter(m => m.isAudio).length;
       transcriptionErrors = messages.filter(m => m.text.includes('[ÁUDIO - erro')).length;
       
-      console.log(`[WhatsApp AI] Processadas ${messages.length} mensagens (${audioCount} áudios, ${transcriptionErrors} erros)`);
+      const summaryLog = `[WhatsApp AI] Processadas ${messages.length} mensagens (${audioCount} áudios, ${transcriptionErrors} erros)`;
+      console.log(summaryLog);
 
       const conversationHistory = messages.map(msg => 
         `${msg.sender}: ${msg.text}`
@@ -557,12 +567,9 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
                     type: blobForProcessing.type || storeMessage.mediaData?.type || 'audio/ogg'
                   });
 
-              const objectUrl = URL.createObjectURL(audioFile);
-              try {
-                return await this.processAudioBlob(objectUrl);
-              } finally {
-                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
-              }
+add-media-handling-in-whatsapp-ai-extension-0jpwyo
+              return await this.processAudioBlob(audioFile);
+
             }
           }
         } catch (storeError) {
@@ -664,35 +671,47 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return null;
   }
 
-  async processAudioBlob(blobUrl) {
+  async processAudioBlob(blobOrUrl) {
     console.log(`[WhatsApp AI] === PROCESSANDO BLOB DE ÁUDIO ===`);
-    console.log(`[WhatsApp AI] URL: ${blobUrl.substring(0, 50)}...`);
+add-media-handling-in-whatsapp-ai-extension-0jpwyo
+
 
     try {
-      // Fazer fetch do blob
-      console.log('[WhatsApp AI] Fazendo fetch do blob...');
-      const response = await fetch(blobUrl);
-      
-      if (!response.ok) {
-        throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+      let audioBlob;
+
+      if (blobOrUrl instanceof Blob) {
+        audioBlob = blobOrUrl;
+        console.log(`[WhatsApp AI] Blob recebido diretamente - Tamanho: ${audioBlob.size} bytes, Tipo: ${audioBlob.type}`);
+      } else if (typeof blobOrUrl === 'string') {
+        console.log(`[WhatsApp AI] URL: ${blobOrUrl.substring(0, 50)}...`);
+        console.log('[WhatsApp AI] Fazendo fetch do blob...');
+        const response = await fetch(blobOrUrl);
+
+        if (!response.ok) {
+          throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        audioBlob = await response.blob();
+        console.log(`[WhatsApp AI] Blob obtido - Tamanho: ${audioBlob.size} bytes, Tipo: ${audioBlob.type}`);
+      } else {
+        throw new Error('Referência de áudio inválida');
       }
-      
-      const audioBlob = await response.blob();
-      console.log(`[WhatsApp AI] Blob obtido - Tamanho: ${audioBlob.size} bytes, Tipo: ${audioBlob.type}`);
-      
+
       if (audioBlob.size === 0) {
         throw new Error('Arquivo de áudio vazio');
       }
-      
+
       // Verificar e converter tipo se necessário
-      let filename = 'audio.ogg';
+      let filename = blobOrUrl instanceof File && blobOrUrl.name
+        ? blobOrUrl.name
+        : 'audio.ogg';
       let processedBlob = audioBlob;
-      
-      if (audioBlob.type.includes('webm')) {
+
+      if (audioBlob.type?.includes?.('webm')) {
         filename = 'audio.webm';
-      } else if (audioBlob.type.includes('mp4')) {
+      } else if (audioBlob.type?.includes?.('mp4')) {
         filename = 'audio.mp4';
-      } else if (audioBlob.type.includes('mpeg')) {
+      } else if (audioBlob.type?.includes?.('mpeg')) {
         filename = 'audio.mp3';
       }
       
