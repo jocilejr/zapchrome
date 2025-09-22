@@ -8,6 +8,7 @@ class WhatsAppAIAssistant {
       model: 'gpt-4o',
       responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa'
     };
+    this.lastKnownAudioSrc = null;
     this.pageBridgeRequests = new Map();
     this.boundHandlePageBridgeMessage = this.handlePageBridgeMessage.bind(this);
     this._pageBridgeListenerAttached = false;
@@ -643,11 +644,13 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
-update-audio-processing-functions-q538l5
+update-audio-processing-functions-egcq32
+
       const directAudioSrc = this.resolveAudioSource(audioElement);
       if (directAudioSrc) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
         return await this.processAudioBlob(directAudioSrc);
+update-audio-processing-functions-egcq32
 
       }
 
@@ -682,7 +685,7 @@ update-audio-processing-functions-q538l5
 
   findAudioInMessage(messageElement) {
     console.log('[WhatsApp AI] Procurando áudio na estrutura da mensagem...');
-    
+
     // Buscar em diferentes estruturas possíveis
     const possibleContainers = [
       messageElement,
@@ -692,15 +695,31 @@ update-audio-processing-functions-q538l5
       messageElement.querySelector('[class*="audio"]'),
       messageElement.querySelector('[class*="ptt"]')
     ].filter(Boolean);
-    
-    for (const container of possibleContainers) {
-      const audio = container.querySelector('audio');
-update-audio-processing-functions-q538l5
-      const src = this.resolveAudioSource(audio);
-      if (audio && src) {
 
+    for (const container of possibleContainers) {
+update-audio-processing-functions-egcq32
+      const directAudio = container.querySelector('audio');
+      const directSrc = this.resolveAudioSource(directAudio);
+      if (directAudio && directSrc) {
         console.log('[WhatsApp AI] Áudio encontrado em container');
-        return { src, element: audio };
+        return { src: directSrc, element: directAudio };
+      }
+
+      // Procurar também por <source> fora do <audio>
+      const looseSource = container.querySelector('source[src], source[data-src]');
+      const looseSrc = this.resolveElementUrl(looseSource);
+      if (looseSource && looseSrc) {
+        console.log('[WhatsApp AI] Áudio encontrado via elemento <source> avulso');
+        return { src: looseSrc, element: looseSource };
+      }
+
+      // Procurar âncoras ou botões com href/data-ref apontando para mídia
+      const linkWithMedia = container.querySelector('a[href], button[data-ref], div[data-ref]');
+      const linkSrc = this.resolveElementUrl(linkWithMedia);
+      if (linkWithMedia && linkSrc) {
+        console.log('[WhatsApp AI] Áudio encontrado via atributo de mídia');
+        return { src: linkSrc, element: linkWithMedia };
+
       }
     }
 
@@ -709,11 +728,14 @@ update-audio-processing-functions-q538l5
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
-update-audio-processing-functions-q538l5
+update-audio-processing-functions-egcq32
 
-    const allAudios = Array.from(document.querySelectorAll('audio')).map(audio => ({
-      element: audio,
-      src: this.resolveAudioSource(audio)
+    const audioElements = document.querySelectorAll('audio, source[src], source[data-src]');
+    const allAudios = Array.from(audioElements).map(element => ({
+      element,
+      src: element.tagName.toLowerCase() === 'audio'
+        ? this.resolveAudioSource(element)
+        : this.resolveElementUrl(element)
     })).filter(item => !!item.src);
     console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
 
@@ -722,6 +744,7 @@ update-audio-processing-functions-q538l5
 
     // Pegar o mais recente (último na lista)
     const recentAudio = allAudios[allAudios.length - 1];
+    this.lastKnownAudioSrc = recentAudio.src;
     return recentAudio.src;
   }
 
@@ -729,19 +752,92 @@ update-audio-processing-functions-q538l5
     console.log('[WhatsApp AI] Tentando extrair áudio sem reprodução...');
 
     // Procurar por elementos que podem conter referência ao áudio
-    const audioButtons = messageElement.querySelectorAll('[data-testid*="audio"], [data-icon*="audio"], button[aria-label*="áudio"]');
-    
+    const audioButtons = messageElement.querySelectorAll('[data-testid*="audio"], [data-icon*="audio"], button[aria-label*="áudio"], button[aria-label*="voice"], button[aria-label*="voz"]');
+
     for (const button of audioButtons) {
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
-update-audio-processing-functions-q538l5
+update-audio-processing-functions-egcq32
 
       const nearbySrc = this.resolveAudioSource(nearbyAudio);
       if (nearbyAudio && nearbySrc) {
-
         console.log('[WhatsApp AI] Áudio encontrado próximo ao botão');
         return nearbySrc;
+      }
+
+      const sourceElement = button.closest('[class*="message"]')?.querySelector('source[src], source[data-src]');
+      const sourceUrl = this.resolveElementUrl(sourceElement);
+      if (sourceElement && sourceUrl) {
+        console.log('[WhatsApp AI] Áudio encontrado via elemento <source> próximo ao botão');
+        return sourceUrl;
+      }
+
+      const referencedUrl = this.resolveElementUrl(button);
+      if (referencedUrl) {
+        console.log('[WhatsApp AI] Áudio encontrado em atributo do botão');
+        return referencedUrl;
+      }
+    }
+
+    if (this.lastKnownAudioSrc) {
+      console.log('[WhatsApp AI] Reutilizando último áudio conhecido');
+      return this.lastKnownAudioSrc;
+    }
+
+    return null;
+  }
+
+  resolveElementUrl(element) {
+    if (!element) {
+      return null;
+    }
+
+    const candidateValues = [];
+
+    if (typeof element.currentSrc === 'string' && element.currentSrc.trim()) {
+      candidateValues.push(element.currentSrc.trim());
+    }
+
+    if (typeof element.src === 'string' && element.src.trim()) {
+      candidateValues.push(element.src.trim());
+    }
+
+    const attributeNames = ['src', 'href', 'data-src', 'data-href', 'data-ref', 'data-url', 'data-media-url', 'data-mediakey'];
+    for (const attr of attributeNames) {
+      const attrValue = element.getAttribute?.(attr);
+      if (attrValue && attrValue.trim()) {
+        candidateValues.push(attrValue.trim());
+      }
+    }
+
+    const datasetKeys = ['ref', 'src', 'href', 'url', 'mediaUrl', 'mediaurl', 'mediaRef'];
+    for (const key of datasetKeys) {
+      const value = element.dataset?.[key];
+      if (value && value.trim()) {
+        candidateValues.push(value.trim());
+      }
+    }
+
+    const parentLink = element.closest?.('a[href], button[href]');
+    if (parentLink?.href) {
+      candidateValues.push(parentLink.href.trim());
+    }
+
+    for (const rawValue of candidateValues) {
+      const value = rawValue.trim();
+      if (!value) {
+        continue;
+      }
+
+      if (/^(blob:|data:|https?:)/i.test(value)) {
+        return value;
+      }
+
+      try {
+        return new URL(value, window.location.href).toString();
+      } catch (error) {
+        console.warn('[WhatsApp AI] Não foi possível resolver URL relativa de mídia', error);
       }
     }
 
@@ -753,36 +849,17 @@ update-audio-processing-functions-q538l5
       return null;
     }
 
-    if (audioElement.src) {
-      return audioElement.src;
+    const directUrl = this.resolveElementUrl(audioElement);
+    if (directUrl) {
+      return directUrl;
     }
 
-    const elementAttrSrc = audioElement.getAttribute('src');
-    if (elementAttrSrc) {
-      try {
-        return new URL(elementAttrSrc, window.location.href).toString();
-      } catch (error) {
-        console.warn('[WhatsApp AI] Não foi possível resolver src do elemento <audio>', error);
-      }
-    }
-
-    const sourceElements = audioElement.querySelectorAll('source');
+    const sourceElements = audioElement.querySelectorAll('source, a[href]');
     for (const sourceElement of sourceElements) {
-      if (!sourceElement) {
-        continue;
-      }
+      const resolved = this.resolveElementUrl(sourceElement);
+      if (resolved) {
+        return resolved;
 
-      if (sourceElement.src) {
-        return sourceElement.src;
-      }
-
-      const attrSrc = sourceElement.getAttribute('src');
-      if (attrSrc) {
-        try {
-          return new URL(attrSrc, window.location.href).toString();
-        } catch (error) {
-          console.warn('[WhatsApp AI] Não foi possível resolver src do elemento <source>', error);
-        }
       }
     }
 
