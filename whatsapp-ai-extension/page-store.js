@@ -31,6 +31,29 @@
     return null;
   }
 
+  function findChunkArray() {
+    try {
+      const windowKeys = Object.keys(window || {});
+      for (const key of windowKeys) {
+        if (key.startsWith('webpackChunk')) {
+          const candidate = window[key];
+          if (candidate && typeof candidate.push === 'function') {
+            return candidate;
+          }
+        }
+      }
+    } catch (error) {
+      log('Erro ao inspecionar window em busca do chunk webpack', error);
+    }
+
+    const legacy = window.webpackChunkwhatsapp_web_client;
+    if (legacy && typeof legacy.push === 'function') {
+      return legacy;
+    }
+
+    return null;
+  }
+
   function ensureStoreInternal() {
     if (window.Store && window.Store.Msg) {
       return Promise.resolve(window.Store);
@@ -41,46 +64,68 @@
     }
 
     storePromise = new Promise((resolve, reject) => {
-      const chunk = window.webpackChunkwhatsapp_web_client;
-      if (!chunk || typeof chunk.push !== 'function') {
-        reject(new Error('webpackChunkwhatsapp_web_client não encontrado'));
-        return;
-      }
-
       const moduleId = `__wa_store_${Date.now()}`;
       let resolved = false;
+      let retryTimer = null;
+      let timeout = null;
 
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          reject(new Error('Timeout ao localizar Store do WhatsApp'));
+      const cleanup = () => {
+        if (retryTimer) {
+          clearTimeout(retryTimer);
+          retryTimer = null;
         }
-      }, 5000);
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+      };
 
-      try {
-        chunk.push([
-          [moduleId],
-          {},
-          (__webpack_require__) => {
-            try {
-              const store = findStoreInModules(__webpack_require__);
-              if (store && store.Msg) {
-                resolved = true;
-                clearTimeout(timeout);
-                window.Store = store;
-                resolve(store);
-                return;
-              }
-              throw new Error('Store.Msg não encontrado nos módulos do WhatsApp');
-            } catch (error) {
-              clearTimeout(timeout);
-              reject(error);
-            }
+      const injectChunk = (chunk) => {
+        timeout = setTimeout(() => {
+          if (!resolved) {
+            cleanup();
+            reject(new Error('Timeout ao localizar Store do WhatsApp'));
           }
-        ]);
-      } catch (error) {
-        clearTimeout(timeout);
-        reject(error);
-      }
+        }, 5000);
+
+        try {
+          chunk.push([
+            [moduleId],
+            {},
+            (__webpack_require__) => {
+              try {
+                const store = findStoreInModules(__webpack_require__);
+                if (store && store.Msg) {
+                  resolved = true;
+                  cleanup();
+                  window.Store = store;
+                  resolve(store);
+                  return;
+                }
+                throw new Error('Store.Msg não encontrado nos módulos do WhatsApp');
+              } catch (error) {
+                cleanup();
+                reject(error);
+              }
+            }
+          ]);
+        } catch (error) {
+          cleanup();
+          reject(error);
+        }
+      };
+
+      const attemptHook = () => {
+        const chunk = findChunkArray();
+        if (!chunk) {
+          retryTimer = setTimeout(attemptHook, 250);
+          return;
+        }
+
+        injectChunk(chunk);
+      };
+
+      attemptHook();
     }).catch(error => {
       storePromise = null;
       throw error;
