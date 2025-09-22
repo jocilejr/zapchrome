@@ -609,16 +609,33 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     }
   }
 
+  updateLastKnownAudioFromBlob(blob) {
+    if (!this.isBlobLike(blob)) {
+      return;
+    }
+
+    try {
+      if (this.lastKnownAudioSrc && this.lastKnownAudioSrc.startsWith('blob:')) {
+        URL.revokeObjectURL(this.lastKnownAudioSrc);
+      }
+      this.lastKnownAudioSrc = URL.createObjectURL(blob);
+    } catch (error) {
+      console.warn('[WhatsApp AI] Não foi possível atualizar referência do último áudio', error);
+    }
+  }
+
   async transcribeAudio(messageElement) {
     console.log('[WhatsApp AI] === INICIANDO TRANSCRIÇÃO DE ÁUDIO ===');
 
     try {
       const messageId = this.getMessageIdFromElement(messageElement);
+      let helperBlob = null;
+
       if (messageId) {
         console.log(`[WhatsApp AI] Solicitando mídia via helper para mensagem ${messageId}`);
         try {
           const helperResponse = await this.getWhatsAppMessageById(messageId);
-          const helperBlob = this.normalizeHelperBlob(
+          helperBlob = this.normalizeHelperBlob(
             helperResponse?.blob,
             helperResponse?.metadata?.mimeType
           );
@@ -629,6 +646,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
             const mimeType = helperBlob.type || metadata.mimeType || 'audio/ogg';
             const fileName = metadata.fileName || 'whatsapp-audio.ogg';
 
+            this.updateLastKnownAudioFromBlob(helperBlob);
+
             return await this.processAudioBlob(helperBlob, {
               fileName,
               mimeType
@@ -637,6 +656,39 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         } catch (storeError) {
           console.warn('[WhatsApp AI] Falha ao obter mídia via helper', storeError);
           this.showNotification('⚠️ Não foi possível acessar o áudio internamente. Tentando métodos alternativos...', 'warning');
+        }
+      } else {
+        console.log('[WhatsApp AI] Nenhum messageId encontrado, tentando último áudio disponível no Store');
+      }
+
+      if (!helperBlob) {
+        const storeReadyForLastAudio = await this.ensureWhatsAppStore();
+        if (storeReadyForLastAudio) {
+          try {
+            const lastAudioResponse = await this.requestPageStoreAction('GET_LAST_AUDIO_BLOB', {}, 12000);
+            const lastAudioBlob = this.normalizeHelperBlob(
+              lastAudioResponse?.blob,
+              lastAudioResponse?.metadata?.mimeType
+            );
+
+            if (lastAudioBlob) {
+              console.log('[WhatsApp AI] Áudio obtido via helper do Store (última mensagem de voz)');
+              const metadata = lastAudioResponse?.metadata || {};
+              const mimeType = lastAudioBlob.type || metadata.mimeType || 'audio/ogg';
+              const fileName = metadata.fileName || 'whatsapp-audio.ogg';
+
+              this.updateLastKnownAudioFromBlob(lastAudioBlob);
+
+              return await this.processAudioBlob(lastAudioBlob, {
+                fileName,
+                mimeType
+              });
+            }
+          } catch (lastAudioError) {
+            console.warn('[WhatsApp AI] Falha ao obter último áudio via helper', lastAudioError);
+          }
+        } else {
+          console.warn('[WhatsApp AI] Helper do Store indisponível para obter último áudio');
         }
       }
 
