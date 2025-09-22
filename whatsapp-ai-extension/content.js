@@ -8,9 +8,6 @@ class WhatsAppAIAssistant {
       model: 'gpt-4o',
       responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa'
     };
-    this.pageBridgeRequests = new Map();
-    this.boundHandlePageBridgeMessage = this.handlePageBridgeMessage.bind(this);
-    this._pageBridgeListenerAttached = false;
     console.log('[WhatsApp AI] Construtor iniciado');
     this.init();
   }
@@ -18,12 +15,9 @@ class WhatsAppAIAssistant {
   async init() {
     console.log('[WhatsApp AI] Inicializando...');
     await this.loadSettings();
-    this.setupPageStoreBridge().catch(error => {
-      console.warn('[WhatsApp AI] Falha ao iniciar bridge do Store', error);
-    });
     this.createFloatingButton();
     this.observeConversationChanges();
-
+    
     // Expor instância globalmente para debug
     window.whatsappAI = this;
     console.log('[WhatsApp AI] Inicialização completa');
@@ -39,100 +33,6 @@ class WhatsAppAIAssistant {
       };
     } catch (error) {
       console.log('Erro ao carregar configurações:', error);
-    }
-  }
-
-  setupPageStoreBridge() {
-    if (!this._pageBridgeListenerAttached) {
-      window.addEventListener('message', this.boundHandlePageBridgeMessage);
-      this._pageBridgeListenerAttached = true;
-    }
-
-    if (!this._pageStoreBridgePromise) {
-      this._pageStoreBridgePromise = new Promise((resolve, reject) => {
-        try {
-          const script = document.createElement('script');
-          script.src = chrome.runtime.getURL('page-store.js');
-          script.async = false;
-          script.onload = () => {
-            script.remove();
-            resolve();
-          };
-          script.onerror = (error) => {
-            script.remove();
-            reject(new Error('Falha ao carregar helper do Store do WhatsApp'));
-          };
-          (document.head || document.documentElement).appendChild(script);
-        } catch (error) {
-          reject(error);
-        }
-      }).catch(error => {
-        console.warn('[WhatsApp AI] Erro ao injetar bridge do Store', error);
-        if (this._pageBridgeListenerAttached) {
-          window.removeEventListener('message', this.boundHandlePageBridgeMessage);
-          this._pageBridgeListenerAttached = false;
-        }
-        this._pageStoreBridgePromise = null;
-        throw error;
-      });
-    }
-
-    return this._pageStoreBridgePromise;
-  }
-
-  async requestPageStoreAction(action, payload = {}, timeoutMs = 8000) {
-    await this.setupPageStoreBridge();
-
-    return new Promise((resolve, reject) => {
-      const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-
-      const timeout = setTimeout(() => {
-        this.pageBridgeRequests.delete(requestId);
-        reject(new Error('Timeout ao comunicar com helper do Store'));
-      }, timeoutMs);
-
-      this.pageBridgeRequests.set(requestId, { resolve, reject, timeout });
-
-      window.postMessage(
-        {
-          type: 'WA_STORE_REQUEST',
-          action,
-          requestId,
-          ...payload
-        },
-        '*'
-      );
-    });
-  }
-
-  handlePageBridgeMessage(event) {
-    if (event.source !== window || !event.data) {
-      return;
-    }
-
-    const data = event.data;
-
-    if (data.type === 'WA_STORE_READY') {
-      console.log('[WhatsApp AI] Bridge do Store pronta');
-      return;
-    }
-
-    if (data.type !== 'WA_STORE_RESPONSE' || !data.requestId) {
-      return;
-    }
-
-    const pending = this.pageBridgeRequests.get(data.requestId);
-    if (!pending) {
-      return;
-    }
-
-    clearTimeout(pending.timeout);
-    this.pageBridgeRequests.delete(data.requestId);
-
-    if (data.success) {
-      pending.resolve({ blob: data.blob, metadata: data.metadata });
-    } else {
-      pending.reject(new Error(data.error || 'Falha desconhecida no helper do Store'));
     }
   }
 
@@ -531,29 +431,79 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
   }
 
   async ensureWhatsAppStore() {
-    try {
-      await this.requestPageStoreAction('ENSURE_STORE', {}, 5000);
-      return true;
-    } catch (error) {
-      console.warn('[WhatsApp AI] Não foi possível inicializar helper do Store', error);
-      return false;
+    if (this._whatsAppStorePromise) {
+      return this._whatsAppStorePromise;
     }
+
+    if (window.Store?.Msg) {
+      this._whatsAppStorePromise = Promise.resolve(window.Store);
+      return this._whatsAppStorePromise;
+    }
+
+    const promise = new Promise((resolve, reject) => {
+      const chunk = window.webpackChunkwhatsapp_web_client;
+      if (!chunk || typeof chunk.push !== 'function') {
+        reject(new Error('webpackChunkwhatsapp_web_client não encontrado'));
+        return;
+      }
+
+      const moduleId = `__wa_store_${Date.now()}`;
+
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout ao carregar Store do WhatsApp'));
+      }, 5000);
+
+      try {
+        chunk.push([
+          [moduleId],
+          {},
+          (__webpack_require__) => {
+            try {
+              const moduleMap = __webpack_require__.m || {};
+              for (const key of Object.keys(moduleMap)) {
+                try {
+                  const module = __webpack_require__(key);
+                  const candidate = module?.default?.Msg ? module.default : module;
+                  if (candidate?.Msg) {
+                    window.Store = candidate;
+                    clearTimeout(timeout);
+                    resolve(candidate);
+                    return;
+                  }
+                } catch (innerError) {
+                  console.warn('[WhatsApp AI] Erro ao avaliar módulo WhatsApp', innerError);
+                }
+              }
+              clearTimeout(timeout);
+              reject(new Error('Store.Msg não encontrado nos módulos do WhatsApp'));
+            } catch (error) {
+              clearTimeout(timeout);
+              reject(error);
+            }
+          }
+        ]);
+      } catch (error) {
+        clearTimeout(timeout);
+        reject(error);
+      }
+    });
+
+    this._whatsAppStorePromise = promise.catch(error => {
+      this._whatsAppStorePromise = null;
+      throw error;
+    });
+
+    return this._whatsAppStorePromise;
   }
 
   async getWhatsAppMessageById(messageId) {
-    if (!messageId) {
-      return null;
-    }
-
-    const isReady = await this.ensureWhatsAppStore();
-    if (!isReady) {
-      return null;
-    }
-
     try {
-      return await this.requestPageStoreAction('GET_AUDIO_BLOB', { messageId }, 12000);
+      const store = await this.ensureWhatsAppStore();
+      if (!store?.Msg) return null;
+      const message = store.Msg.get?.(messageId) || store.Msg.find?.(msg => msg?.id?._serialized === messageId || msg?.id === messageId);
+      return message || null;
     } catch (error) {
-      console.warn('[WhatsApp AI] Não foi possível obter mídia via helper do Store', error);
+      console.warn('[WhatsApp AI] Não foi possível obter Store.Msg', error);
       return null;
     }
   }
@@ -564,29 +514,59 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     try {
       const messageId = this.getMessageIdFromElement(messageElement);
       if (messageId) {
-        console.log(`[WhatsApp AI] Solicitando mídia via helper para mensagem ${messageId}`);
+        console.log(`[WhatsApp AI] Tentando obter mídia via Store para mensagem ${messageId}`);
         try {
-          const helperResponse = await this.getWhatsAppMessageById(messageId);
-          const helperBlob = helperResponse?.blob;
-          if (helperBlob instanceof Blob) {
-            console.log('[WhatsApp AI] Áudio obtido via helper do Store');
-            const metadata = helperResponse?.metadata || {};
-            const mimeType = helperBlob.type || metadata.mimeType || 'audio/ogg';
-            const fileName = metadata.fileName || 'whatsapp-audio.ogg';
+          const storeMessage = await this.getWhatsAppMessageById(messageId);
+          if (storeMessage?.mediaData) {
+            if (!storeMessage.mediaData.mediaBlob && !storeMessage.mediaData._mediaBlob && !storeMessage.mediaData.blob) {
+              console.log('[WhatsApp AI] Blob não carregado, tentando download interno...');
+              try {
+                if (typeof storeMessage.downloadMedia === 'function') {
+                  await storeMessage.downloadMedia();
+                } else {
+                  throw new Error('Método downloadMedia indisponível');
+                }
+              } catch (downloadError) {
+                console.warn('[WhatsApp AI] Falha ao baixar mídia internamente', downloadError);
+                this.showNotification('⚠️ Não foi possível baixar o áudio internamente. Tentando métodos alternativos...', 'warning');
+              }
+            }
 
-            const audioFile = helperBlob instanceof File
-              ? helperBlob
-              : new File([helperBlob], fileName, { type: mimeType });
+            const internalBlob =
+              storeMessage.mediaData.mediaBlob ||
+              storeMessage.mediaData._mediaBlob ||
+              storeMessage.mediaData.blob ||
+              storeMessage.mediaData.file ||
+              storeMessage.mediaData?.mediaBlobUrl;
 
-            const objectUrl = URL.createObjectURL(audioFile);
-            try {
-              return await this.processAudioBlob(objectUrl);
-            } finally {
-              setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+            let blobForProcessing = null;
+            if (internalBlob instanceof Blob) {
+              blobForProcessing = internalBlob;
+            } else if (internalBlob?.blob instanceof Blob) {
+              blobForProcessing = internalBlob.blob;
+            } else if (typeof internalBlob === 'string' && internalBlob.startsWith('blob:')) {
+              console.log('[WhatsApp AI] URL de blob interno encontrada');
+              return await this.processAudioBlob(internalBlob);
+            }
+
+            if (blobForProcessing) {
+              console.log('[WhatsApp AI] Áudio obtido via Store');
+              const audioFile = blobForProcessing instanceof File
+                ? blobForProcessing
+                : new File([blobForProcessing], 'whatsapp-audio.ogg', {
+                    type: blobForProcessing.type || storeMessage.mediaData?.type || 'audio/ogg'
+                  });
+
+              const objectUrl = URL.createObjectURL(audioFile);
+              try {
+                return await this.processAudioBlob(objectUrl);
+              } finally {
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 5000);
+              }
             }
           }
         } catch (storeError) {
-          console.warn('[WhatsApp AI] Falha ao obter mídia via helper', storeError);
+          console.warn('[WhatsApp AI] Falha ao obter mídia via Store', storeError);
           this.showNotification('⚠️ Não foi possível acessar o áudio internamente. Tentando métodos alternativos...', 'warning');
         }
       }
