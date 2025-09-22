@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WhatsApp AI Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="header">
+      <div class="header-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h1>WhatsApp AI Assistant</h1>
+    </div>
+
+    <div class="content">
+      <div class="section">
+        <label for="apiKey">API Key OpenAI:</label>
+        <div class="input-group">
+          <input type="password" id="apiKey" placeholder="sk-..." />
+          <button type="button" id="toggleApiKey" class="toggle-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="section">
+        <label for="model">Modelo OpenAI:</label>
+        <select id="model">
+          <option value="gpt-4o">GPT-4o (Mais Avançado)</option>
+          <option value="gpt-4o-mini">GPT-4o Mini (Mais Rápido)</option>
+          <option value="gpt-4-turbo">GPT-4 Turbo</option>
+          <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Econômico)</option>
+        </select>
+      </div>
+
+      <div class="section">
+        <label for="responseStyle">Estilo das Respostas:</label>
+        <textarea 
+          id="responseStyle" 
+          rows="4" 
+          placeholder="Ex: Responda sempre de forma amigável e casual, usando emojis quando apropriado..."
+        ></textarea>
+        <div class="help-text">
+          Descreva como você quer que a IA responda (tom, estilo, personalidade)
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="saveButton" class="save-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" stroke="currentColor" stroke-width="2"/>
+            <polyline points="17,21 17,13 7,13 7,21" stroke="currentColor" stroke-width="2"/>
+            <polyline points="7,3 7,8 15,8" stroke="currentColor" stroke-width="2"/>
+          </svg>
+          Salvar Configurações
+        </button>
+        <button id="testButton" class="test-btn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <polygon points="5,3 19,12 5,21" stroke="currentColor" stroke-width="2" fill="currentColor"/>
+          </svg>
+          Testar API
+        </button>
+      </div>
+
+      <div class="status" id="status"></div>
+    </div>
+
+    <div class="footer">
+      <div class="usage-guide">
+        <h3>Como usar:</h3>
+        <ol>
+          <li>Configure sua API Key da OpenAI</li>
+          <li>Defina o estilo das respostas</li>
+          <li>Abra uma conversa no WhatsApp Web</li>
+          <li>Clique no botão IA no canto inferior direito</li>
+          <li>A extensão transcrevará áudios automaticamente</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
