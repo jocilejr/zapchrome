@@ -557,7 +557,9 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
                     type: blobForProcessing.type || storeMessage.mediaData?.type || 'audio/ogg'
                   });
 
+ add-media-handling-in-whatsapp-ai-extension-gico0i
               return await this.processAudioBlob(audioFile);
+
             }
           }
         } catch (storeError) {
@@ -661,6 +663,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
   async processAudioBlob(blobOrUrl) {
     console.log(`[WhatsApp AI] === PROCESSANDO BLOB DE ÁUDIO ===`);
+ add-media-handling-in-whatsapp-ai-extension-gico0i
+
 
     try {
       let audioBlob;
