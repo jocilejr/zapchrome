@@ -252,6 +252,160 @@
     };
   }
 
+  function collectionToArray(candidate) {
+    if (!candidate) {
+      return [];
+    }
+
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+
+    if (typeof candidate.toArray === 'function') {
+      try {
+        const array = candidate.toArray();
+        if (Array.isArray(array)) {
+          return array;
+        }
+      } catch (error) {
+        log('Falha ao converter coleção para array via toArray', error);
+      }
+    }
+
+    if (typeof candidate.values === 'function') {
+      try {
+        return Array.from(candidate.values());
+      } catch (error) {
+        log('Falha ao converter coleção para array via values()', error);
+      }
+    }
+
+    if (typeof candidate.forEach === 'function') {
+      const array = [];
+      try {
+        candidate.forEach((value) => {
+          array.push(value);
+        });
+      } catch (error) {
+        log('Falha ao converter coleção para array via forEach()', error);
+      }
+
+      if (array.length) {
+        return array;
+      }
+    }
+
+    if (typeof candidate === 'object') {
+      try {
+        const values = Object.values(candidate).filter((value) =>
+          value && typeof value === 'object'
+        );
+        if (values.length) {
+          return values;
+        }
+      } catch (error) {
+        log('Falha ao converter objeto para array', error);
+      }
+    }
+
+    return [];
+  }
+
+  function resolveMessageModels(messagesCollection) {
+    if (!messagesCollection) {
+      return [];
+    }
+
+    const extractionStrategies = [
+      () =>
+        typeof messagesCollection.getModelsArray === 'function'
+          ? messagesCollection.getModelsArray()
+          : null,
+      () =>
+        typeof messagesCollection.getModels === 'function'
+          ? messagesCollection.getModels()
+          : null,
+      () =>
+        typeof messagesCollection.all === 'function'
+          ? messagesCollection.all()
+          : null,
+      () => messagesCollection.models,
+      () => messagesCollection._models
+    ];
+
+    for (const getCandidate of extractionStrategies) {
+      let candidate = null;
+      try {
+        candidate = getCandidate();
+      } catch (error) {
+        log('Falha ao extrair mensagens da conversa ativa', error);
+      }
+
+      const asArray = collectionToArray(candidate);
+      if (asArray.length) {
+        return asArray;
+      }
+    }
+
+    return collectionToArray(messagesCollection);
+  }
+
+  async function getLastAudioBlobFromActiveChat() {
+    const store = await ensureStore();
+
+    const activeChat =
+      store.Chat && typeof store.Chat.getActive === 'function'
+        ? store.Chat.getActive()
+        : null;
+
+    const messagesCollection = activeChat && activeChat.msgs;
+    const messageModels = resolveMessageModels(messagesCollection);
+
+    if (!Array.isArray(messageModels) || messageModels.length === 0) {
+      throw new Error('Nenhuma mensagem encontrada na conversa ativa');
+    }
+
+    for (let index = messageModels.length - 1; index >= 0; index -= 1) {
+      const message = messageModels[index];
+
+      if (!message || !message.mediaData) {
+        continue;
+      }
+
+      const messageType = message.type || message.__x_type;
+      const messageMediaType =
+        message.mediaType || message.__x_mediaType || message.mediaData.type || message.mediaData.mimetype;
+
+      if (messageType !== 'ptt' && messageMediaType !== 'audio') {
+        continue;
+      }
+
+      try {
+        const result = await ensureMessageMediaBlob(message);
+        const mediaData = message.mediaData || {};
+        const fileName = mediaData.filename || mediaData.fileName || 'whatsapp-audio.ogg';
+        const id = message.id;
+        const serializedId =
+          typeof id === 'string'
+            ? id
+            : id && (id._serialized || id.id || (typeof id.toString === 'function' ? id.toString() : null));
+
+        return {
+          blob: result.blob,
+          metadata: {
+            mimeType: result.mimeType || mediaData.mimetype || 'audio/ogg',
+            fileName,
+            messageId: serializedId || null
+          }
+        };
+      } catch (error) {
+        log('Falha ao garantir blob da última mensagem de áudio', error);
+      }
+    }
+
+    throw new Error('Nenhuma mensagem de voz encontrada na conversa ativa');
+  }
+
   function respond(requestId, success, payload) {
     window.postMessage(
       {
@@ -293,6 +447,20 @@
 
     if (action === 'GET_AUDIO_BLOB') {
       getAudioBlobByMessageId(messageId)
+        .then((result) => {
+          respond(requestId, true, {
+            blob: result.blob,
+            metadata: result.metadata
+          });
+        })
+        .catch((error) => {
+          respond(requestId, false, { error: error.message || 'Erro desconhecido' });
+        });
+      return;
+    }
+
+    if (action === 'GET_LAST_AUDIO_BLOB') {
+      getLastAudioBlobFromActiveChat()
         .then((result) => {
           respond(requestId, true, {
             blob: result.blob,
