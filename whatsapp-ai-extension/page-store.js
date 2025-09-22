@@ -252,6 +252,67 @@
     };
   }
 
+  async function getLastAudioBlobFromActiveChat() {
+    const store = await ensureStore();
+
+    const activeChat =
+      store.Chat && typeof store.Chat.getActive === 'function'
+        ? store.Chat.getActive()
+        : null;
+
+    const messagesCollection = activeChat && activeChat.msgs;
+    const messageModels =
+      messagesCollection && typeof messagesCollection.getModels === 'function'
+        ? messagesCollection.getModels()
+        : Array.isArray(messagesCollection)
+        ? messagesCollection
+        : null;
+
+    if (!Array.isArray(messageModels) || messageModels.length === 0) {
+      throw new Error('Nenhuma mensagem encontrada na conversa ativa');
+    }
+
+    for (let index = messageModels.length - 1; index >= 0; index -= 1) {
+      const message = messageModels[index];
+
+      if (!message || !message.mediaData) {
+        continue;
+      }
+
+      const messageType = message.type || message.__x_type;
+      const messageMediaType =
+        message.mediaType || message.__x_mediaType || message.mediaData.type || message.mediaData.mimetype;
+
+      if (messageType !== 'ptt' && messageMediaType !== 'audio') {
+        continue;
+      }
+
+      try {
+        const result = await ensureMessageMediaBlob(message);
+        const mediaData = message.mediaData || {};
+        const fileName = mediaData.filename || mediaData.fileName || 'whatsapp-audio.ogg';
+        const id = message.id;
+        const serializedId =
+          typeof id === 'string'
+            ? id
+            : id && (id._serialized || id.id || (typeof id.toString === 'function' ? id.toString() : null));
+
+        return {
+          blob: result.blob,
+          metadata: {
+            mimeType: result.mimeType || mediaData.mimetype || 'audio/ogg',
+            fileName,
+            messageId: serializedId || null
+          }
+        };
+      } catch (error) {
+        log('Falha ao garantir blob da última mensagem de áudio', error);
+      }
+    }
+
+    throw new Error('Nenhuma mensagem de voz encontrada na conversa ativa');
+  }
+
   function respond(requestId, success, payload) {
     window.postMessage(
       {
@@ -293,6 +354,20 @@
 
     if (action === 'GET_AUDIO_BLOB') {
       getAudioBlobByMessageId(messageId)
+        .then((result) => {
+          respond(requestId, true, {
+            blob: result.blob,
+            metadata: result.metadata
+          });
+        })
+        .catch((error) => {
+          respond(requestId, false, { error: error.message || 'Erro desconhecido' });
+        });
+      return;
+    }
+
+    if (action === 'GET_LAST_AUDIO_BLOB') {
+      getLastAudioBlobFromActiveChat()
         .then((result) => {
           respond(requestId, true, {
             blob: result.blob,
