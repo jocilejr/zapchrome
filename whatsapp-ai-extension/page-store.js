@@ -162,250 +162,55 @@
     throw new Error('Store.Msg indisponível');
   }
 
-  function isBlobLike(candidate) {
-    if (!candidate) {
-      return false;
-    }
-
-    if (typeof Blob !== 'undefined' && candidate instanceof Blob) {
-      return true;
-    }
-
-    const tag = Object.prototype.toString.call(candidate);
-    return tag === '[object Blob]' || tag === '[object File]';
-  }
-
-  function unwrapBlob(candidate) {
-    if (!candidate) {
-      return null;
-    }
-
-    if (isBlobLike(candidate)) {
-      return candidate;
-    }
-
-    if (candidate.blob && isBlobLike(candidate.blob)) {
-      return candidate.blob;
-    }
-
-    if (candidate._blob && isBlobLike(candidate._blob)) {
-      return candidate._blob;
-    }
-
-    if (candidate.data && isBlobLike(candidate.data)) {
-      return candidate.data;
-    }
-
-    return null;
-  }
-
-  function decodeBase64ToUint8Array(base64) {
-    if (typeof base64 !== 'string' || !base64) {
-      return null;
-    }
-
-    try {
-      if (typeof atob === 'function') {
-        const normalized = base64.replace(/\s+/g, '');
-        const binary = atob(normalized);
-        const bytes = new Uint8Array(binary.length);
-        for (let index = 0; index < binary.length; index += 1) {
-          bytes[index] = binary.charCodeAt(index);
-        }
-        return bytes;
-      }
-
-      if (typeof Buffer !== 'undefined') {
-        const buffer = Buffer.from(base64, 'base64');
-        return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.length);
-      }
-    } catch (error) {
-      log('Falha ao decodificar base64 para Uint8Array', error);
-    }
-
-    return null;
-  }
-
-  function blobFromDataString(dataString, fallbackMimeType) {
-    if (typeof dataString !== 'string' || !dataString) {
-      return null;
-    }
-
-    let mimeType = fallbackMimeType || 'application/octet-stream';
-    let payload = dataString;
-    let isBase64 = true;
-
-    if (dataString.startsWith('data:')) {
-      const commaIndex = dataString.indexOf(',');
-      if (commaIndex === -1) {
-        return null;
-      }
-
-      const metadata = dataString.substring(5, commaIndex);
-      const segments = metadata
-        .split(';')
-        .map((segment) => segment.trim())
-        .filter(Boolean);
-      if (segments.length > 0) {
-        mimeType = segments[0];
-      }
-
-      isBase64 = segments.includes('base64');
-      payload = dataString.substring(commaIndex + 1);
-
-      if (!isBase64) {
-        try {
-          const decoded = decodeURIComponent(payload);
-          return new Blob([decoded], { type: mimeType });
-        } catch (error) {
-          log('Falha ao decodificar data URI não-base64', error);
-          return null;
-        }
-      }
-    }
-
-    const bytes = decodeBase64ToUint8Array(payload);
-    if (!bytes) {
-      return null;
-    }
-
-    return new Blob([bytes.buffer], { type: mimeType });
-  }
-
-  function coerceStringToBlob(candidate, fallbackMimeType) {
-    if (typeof candidate !== 'string' || !candidate) {
-      return null;
-    }
-
-    if (candidate.startsWith('data:')) {
-      return blobFromDataString(candidate, fallbackMimeType);
-    }
-
-    return null;
-  }
-
-  async function fetchBlobFromUrl(url, fallbackMimeType) {
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const blob = await response.blob();
-      if (!blob.type && fallbackMimeType) {
-        return new Blob([await blob.arrayBuffer()], { type: fallbackMimeType });
-      }
-      return blob;
-    } catch (error) {
-      throw new Error(`Não foi possível obter blob a partir da URL: ${error.message}`);
-    }
-  }
-
-  function resolveMediaUrls(mediaData, downloadResult) {
-    const urls = [];
-
-    if (mediaData) {
-      const mediaUrls = [
-        mediaData.mediaBlobUrl,
-        mediaData.mediaUrl,
-        mediaData.url,
-        mediaData.clientUrl,
-        mediaData.directPath ? `https://mmg.whatsapp.net${mediaData.directPath}` : null,
-        mediaData.streamableUrl,
-        mediaData.renderableUrl
-      ];
-
-      mediaUrls.forEach((value) => {
-        if (typeof value === 'string' && value) {
-          urls.push(value);
-        }
-      });
-    }
-
-    if (downloadResult) {
-      const downloadUrls = [
-        downloadResult.mediaBlobUrl,
-        downloadResult.url,
-        downloadResult.directPath ? `https://mmg.whatsapp.net${downloadResult.directPath}` : null,
-        downloadResult.clientUrl
-      ];
-
-      downloadUrls.forEach((value) => {
-        if (typeof value === 'string' && value) {
-          urls.push(value);
-        }
-      });
-    }
-
-    return urls.filter(Boolean);
-  }
-
   async function ensureMessageMediaBlob(message) {
     if (!message || !message.mediaData) {
       throw new Error('Mensagem não possui dados de mídia');
     }
 
     const mediaData = message.mediaData;
-    let downloadResult = null;
 
-    const inlineBlob =
-      unwrapBlob(mediaData.mediaBlob) ||
-      unwrapBlob(mediaData._mediaBlob) ||
-      unwrapBlob(mediaData.blob) ||
-      unwrapBlob(mediaData.file);
-
-    if (!inlineBlob && typeof message.downloadMedia === 'function') {
-      try {
-        downloadResult = await message.downloadMedia();
-      } catch (error) {
-        log('Falha ao baixar mídia internamente', error);
-      }
-    }
-
-    const preferredMimeType =
-      mediaData.type ||
-      mediaData.mimetype ||
-      mediaData.mimeType ||
-      (downloadResult && (downloadResult.mimeType || downloadResult.mimetype)) ||
-      'audio/ogg';
-
-    const downloadBlob =
-      unwrapBlob(downloadResult && downloadResult.mediaBlob) ||
-      unwrapBlob(downloadResult && downloadResult._mediaBlob) ||
-      unwrapBlob(downloadResult && downloadResult.blob) ||
-      unwrapBlob(downloadResult && downloadResult.file) ||
-      unwrapBlob(downloadResult && downloadResult.data);
-
-    const dataUrlBlob =
-      (typeof mediaData.data === 'string' && blobFromDataString(mediaData.data, preferredMimeType)) ||
-      (downloadResult && typeof downloadResult.data === 'string'
-        ? blobFromDataString(downloadResult.data, preferredMimeType)
-        : null);
-
-    const bufferBlob =
-      downloadResult && downloadResult.buffer instanceof ArrayBuffer
-        ? new Blob([downloadResult.buffer], { type: preferredMimeType })
-        : null;
-
-    const candidateBlob = inlineBlob || downloadBlob || dataUrlBlob || bufferBlob;
-
-    if (candidateBlob) {
-      return { blob: candidateBlob, mimeType: candidateBlob.type || preferredMimeType };
-    }
-
-    const urls = resolveMediaUrls(mediaData, downloadResult);
-    for (const url of urls) {
-      const directBlob = coerceStringToBlob(url, preferredMimeType);
-      if (directBlob) {
-        return { blob: directBlob, mimeType: directBlob.type || preferredMimeType };
-      }
-
-      try {
-        const fetchedBlob = await fetchBlobFromUrl(url, preferredMimeType);
-        if (fetchedBlob) {
-          return { blob: fetchedBlob, mimeType: fetchedBlob.type || preferredMimeType };
+    if (
+      !mediaData.mediaBlob &&
+      !mediaData._mediaBlob &&
+      !mediaData.blob &&
+      !mediaData.file &&
+      !mediaData.mediaBlobUrl
+    ) {
+      if (typeof message.downloadMedia === 'function') {
+        try {
+          await message.downloadMedia();
+        } catch (error) {
+          log('Falha ao baixar mídia internamente', error);
         }
+      }
+    }
+
+    const candidate =
+      mediaData.mediaBlob ||
+      mediaData._mediaBlob ||
+      mediaData.blob ||
+      mediaData.file ||
+      mediaData.mediaBlobUrl;
+
+    if (candidate instanceof Blob) {
+      return { blob: candidate, mimeType: candidate.type || mediaData.type || mediaData.mimetype };
+    }
+
+    if (candidate && candidate.blob instanceof Blob) {
+      const blob = candidate.blob;
+      return { blob, mimeType: blob.type || mediaData.type || mediaData.mimetype };
+    }
+
+    if (typeof candidate === 'string') {
+      try {
+        const response = await fetch(candidate);
+        if (!response.ok) {
+          throw new Error(`Falha ao carregar blob da URL: ${response.status}`);
+        }
+        const blob = await response.blob();
+        return { blob, mimeType: blob.type || mediaData.type || mediaData.mimetype };
       } catch (error) {
-        log('Falha ao obter blob a partir de URL conhecida da mídia', error);
+        throw new Error(`Não foi possível obter blob a partir da URL: ${error.message}`);
       }
     }
 
@@ -445,160 +250,6 @@
         fileName
       }
     };
-  }
-
-  function collectionToArray(candidate) {
-    if (!candidate) {
-      return [];
-    }
-
-    if (Array.isArray(candidate)) {
-      return candidate;
-    }
-
-    if (typeof candidate.toArray === 'function') {
-      try {
-        const array = candidate.toArray();
-        if (Array.isArray(array)) {
-          return array;
-        }
-      } catch (error) {
-        log('Falha ao converter coleção para array via toArray', error);
-      }
-    }
-
-    if (typeof candidate.values === 'function') {
-      try {
-        return Array.from(candidate.values());
-      } catch (error) {
-        log('Falha ao converter coleção para array via values()', error);
-      }
-    }
-
-    if (typeof candidate.forEach === 'function') {
-      const array = [];
-      try {
-        candidate.forEach((value) => {
-          array.push(value);
-        });
-      } catch (error) {
-        log('Falha ao converter coleção para array via forEach()', error);
-      }
-
-      if (array.length) {
-        return array;
-      }
-    }
-
-    if (typeof candidate === 'object') {
-      try {
-        const values = Object.values(candidate).filter((value) =>
-          value && typeof value === 'object'
-        );
-        if (values.length) {
-          return values;
-        }
-      } catch (error) {
-        log('Falha ao converter objeto para array', error);
-      }
-    }
-
-    return [];
-  }
-
-  function resolveMessageModels(messagesCollection) {
-    if (!messagesCollection) {
-      return [];
-    }
-
-    const extractionStrategies = [
-      () =>
-        typeof messagesCollection.getModelsArray === 'function'
-          ? messagesCollection.getModelsArray()
-          : null,
-      () =>
-        typeof messagesCollection.getModels === 'function'
-          ? messagesCollection.getModels()
-          : null,
-      () =>
-        typeof messagesCollection.all === 'function'
-          ? messagesCollection.all()
-          : null,
-      () => messagesCollection.models,
-      () => messagesCollection._models
-    ];
-
-    for (const getCandidate of extractionStrategies) {
-      let candidate = null;
-      try {
-        candidate = getCandidate();
-      } catch (error) {
-        log('Falha ao extrair mensagens da conversa ativa', error);
-      }
-
-      const asArray = collectionToArray(candidate);
-      if (asArray.length) {
-        return asArray;
-      }
-    }
-
-    return collectionToArray(messagesCollection);
-  }
-
-  async function getLastAudioBlobFromActiveChat() {
-    const store = await ensureStore();
-
-    const activeChat =
-      store.Chat && typeof store.Chat.getActive === 'function'
-        ? store.Chat.getActive()
-        : null;
-
-    const messagesCollection = activeChat && activeChat.msgs;
-    const messageModels = resolveMessageModels(messagesCollection);
-
-    if (!Array.isArray(messageModels) || messageModels.length === 0) {
-      throw new Error('Nenhuma mensagem encontrada na conversa ativa');
-    }
-
-    for (let index = messageModels.length - 1; index >= 0; index -= 1) {
-      const message = messageModels[index];
-
-      if (!message || !message.mediaData) {
-        continue;
-      }
-
-      const messageType = message.type || message.__x_type;
-      const messageMediaType =
-        message.mediaType || message.__x_mediaType || message.mediaData.type || message.mediaData.mimetype;
-
-      if (messageType !== 'ptt' && messageMediaType !== 'audio') {
-        continue;
-      }
-
-      try {
-        const result = await ensureMessageMediaBlob(message);
-        const mediaData = message.mediaData || {};
-        const fileName = mediaData.filename || mediaData.fileName || 'whatsapp-audio.ogg';
-        const id = message.id;
-        const serializedId =
-          typeof id === 'string'
-            ? id
-            : id && (id._serialized || id.id || (typeof id.toString === 'function' ? id.toString() : null));
-
-        return {
-          blob: result.blob,
-          metadata: {
-            mimeType: result.mimeType || mediaData.mimetype || 'audio/ogg',
-            fileName,
-            messageId: serializedId || null
-          }
-        };
-      } catch (error) {
-        log('Falha ao garantir blob da última mensagem de áudio', error);
-      }
-    }
-
-    throw new Error('Nenhuma mensagem de voz encontrada na conversa ativa');
   }
 
   function respond(requestId, success, payload) {
@@ -642,20 +293,6 @@
 
     if (action === 'GET_AUDIO_BLOB') {
       getAudioBlobByMessageId(messageId)
-        .then((result) => {
-          respond(requestId, true, {
-            blob: result.blob,
-            metadata: result.metadata
-          });
-        })
-        .catch((error) => {
-          respond(requestId, false, { error: error.message || 'Erro desconhecido' });
-        });
-      return;
-    }
-
-    if (action === 'GET_LAST_AUDIO_BLOB') {
-      getLastAudioBlobFromActiveChat()
         .then((result) => {
           respond(requestId, true, {
             blob: result.blob,
