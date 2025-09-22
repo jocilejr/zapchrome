@@ -643,11 +643,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
-      if (audioElement && audioElement.src && audioElement.src.startsWith('blob:')) {
-        console.log(`[WhatsApp AI] Usando áudio da mensagem: ${audioElement.src.substring(0, 50)}...`);
-        return await this.processAudioBlob(audioElement.src);
+      const directAudioSrc = this.resolveAudioSource(audioElement);
+      if (directAudioSrc) {
+        console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
+        return await this.processAudioBlob(directAudioSrc);
       }
-      
+
       // Método 2: Buscar na estrutura do WhatsApp sem reproduzir
       const audioData = this.findAudioInMessage(messageElement);
       if (audioData) {
@@ -683,6 +684,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     // Buscar em diferentes estruturas possíveis
     const possibleContainers = [
       messageElement,
+      messageElement.parentElement,
+      messageElement.closest('[data-id]'),
       messageElement.querySelector('[data-testid*="audio"]'),
       messageElement.querySelector('[class*="audio"]'),
       messageElement.querySelector('[class*="ptt"]')
@@ -690,23 +693,27 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     
     for (const container of possibleContainers) {
       const audio = container.querySelector('audio');
-      if (audio && audio.src && audio.src.startsWith('blob:')) {
+      const src = this.resolveAudioSource(audio);
+      if (audio && src) {
         console.log('[WhatsApp AI] Áudio encontrado em container');
-        return { src: audio.src, element: audio };
+        return { src, element: audio };
       }
     }
-    
+
     return null;
   }
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
-    
-    const allAudios = Array.from(document.querySelectorAll('audio[src^="blob:"]'));
-    console.log(`[WhatsApp AI] Total de áudios blob encontrados: ${allAudios.length}`);
-    
+
+    const allAudios = Array.from(document.querySelectorAll('audio')).map(audio => ({
+      element: audio,
+      src: this.resolveAudioSource(audio)
+    })).filter(item => !!item.src);
+    console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
+
     if (allAudios.length === 0) return null;
-    
+
     // Pegar o mais recente (último na lista)
     const recentAudio = allAudios[allAudios.length - 1];
     return recentAudio.src;
@@ -714,7 +721,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
   async extractAudioWithoutPlay(messageElement) {
     console.log('[WhatsApp AI] Tentando extrair áudio sem reprodução...');
-    
+
     // Procurar por elementos que podem conter referência ao áudio
     const audioButtons = messageElement.querySelectorAll('[data-testid*="audio"], [data-icon*="audio"], button[aria-label*="áudio"]');
     
@@ -722,13 +729,55 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
-      
-      if (nearbyAudio && nearbyAudio.src && nearbyAudio.src.startsWith('blob:')) {
+
+      const nearbySrc = this.resolveAudioSource(nearbyAudio);
+      if (nearbyAudio && nearbySrc) {
         console.log('[WhatsApp AI] Áudio encontrado próximo ao botão');
-        return nearbyAudio.src;
+        return nearbySrc;
       }
     }
-    
+
+    return null;
+  }
+
+  resolveAudioSource(audioElement) {
+    if (!audioElement) {
+      return null;
+    }
+
+    if (audioElement.src) {
+      return audioElement.src;
+    }
+
+    const elementAttrSrc = audioElement.getAttribute('src');
+    if (elementAttrSrc) {
+      try {
+        return new URL(elementAttrSrc, window.location.href).toString();
+      } catch (error) {
+        console.warn('[WhatsApp AI] Não foi possível resolver src do elemento <audio>', error);
+      }
+    }
+
+    const sourceElements = audioElement.querySelectorAll('source');
+    for (const sourceElement of sourceElements) {
+      if (!sourceElement) {
+        continue;
+      }
+
+      if (sourceElement.src) {
+        return sourceElement.src;
+      }
+
+      const attrSrc = sourceElement.getAttribute('src');
+      if (attrSrc) {
+        try {
+          return new URL(attrSrc, window.location.href).toString();
+        } catch (error) {
+          console.warn('[WhatsApp AI] Não foi possível resolver src do elemento <source>', error);
+        }
+      }
+    }
+
     return null;
   }
 
@@ -743,7 +792,9 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         const blobUrl = source;
         console.log(`[WhatsApp AI] URL: ${blobUrl.substring(0, 50)}...`);
         console.log('[WhatsApp AI] Fazendo fetch do blob...');
-        const response = await fetch(blobUrl);
+        const response = await fetch(blobUrl, {
+          credentials: 'include'
+        });
 
         if (!response.ok) {
           throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
