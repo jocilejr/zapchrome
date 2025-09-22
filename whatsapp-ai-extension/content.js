@@ -643,10 +643,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
+update-audio-processing-functions-q538l5
       const directAudioSrc = this.resolveAudioSource(audioElement);
       if (directAudioSrc) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
         return await this.processAudioBlob(directAudioSrc);
+
       }
 
       // Método 2: Buscar na estrutura do WhatsApp sem reproduzir
@@ -693,8 +695,10 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     
     for (const container of possibleContainers) {
       const audio = container.querySelector('audio');
+update-audio-processing-functions-q538l5
       const src = this.resolveAudioSource(audio);
       if (audio && src) {
+
         console.log('[WhatsApp AI] Áudio encontrado em container');
         return { src, element: audio };
       }
@@ -705,12 +709,14 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
+update-audio-processing-functions-q538l5
 
     const allAudios = Array.from(document.querySelectorAll('audio')).map(audio => ({
       element: audio,
       src: this.resolveAudioSource(audio)
     })).filter(item => !!item.src);
     console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
+
 
     if (allAudios.length === 0) return null;
 
@@ -729,9 +735,11 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
+update-audio-processing-functions-q538l5
 
       const nearbySrc = this.resolveAudioSource(nearbyAudio);
       if (nearbyAudio && nearbySrc) {
+
         console.log('[WhatsApp AI] Áudio encontrado próximo ao botão');
         return nearbySrc;
       }
