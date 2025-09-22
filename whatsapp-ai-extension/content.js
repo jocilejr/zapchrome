@@ -644,13 +644,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
-update-audio-processing-functions-egcq32
-
+update-audio-processing-functions-yqj8cy
       const directAudioSrc = this.resolveAudioSource(audioElement);
       if (directAudioSrc) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
+        this.lastKnownAudioSrc = directAudioSrc;
         return await this.processAudioBlob(directAudioSrc);
-update-audio-processing-functions-egcq32
 
       }
 
@@ -658,6 +657,7 @@ update-audio-processing-functions-egcq32
       const audioData = this.findAudioInMessage(messageElement);
       if (audioData) {
         console.log(`[WhatsApp AI] Áudio encontrado via estrutura: ${audioData.src.substring(0, 50)}...`);
+        this.lastKnownAudioSrc = audioData.src;
         return await this.processAudioBlob(audioData.src);
       }
       
@@ -665,6 +665,7 @@ update-audio-processing-functions-egcq32
       const recentAudio = this.findRecentAudioBlob();
       if (recentAudio) {
         console.log(`[WhatsApp AI] Usando áudio recente: ${recentAudio.substring(0, 50)}...`);
+        this.lastKnownAudioSrc = recentAudio;
         return await this.processAudioBlob(recentAudio);
       }
       
@@ -672,6 +673,7 @@ update-audio-processing-functions-egcq32
       const extractedAudio = await this.extractAudioWithoutPlay(messageElement);
       if (extractedAudio) {
         console.log('[WhatsApp AI] Áudio extraído sem reprodução');
+        this.lastKnownAudioSrc = extractedAudio;
         return await this.processAudioBlob(extractedAudio);
       }
       
@@ -697,7 +699,8 @@ update-audio-processing-functions-egcq32
     ].filter(Boolean);
 
     for (const container of possibleContainers) {
-update-audio-processing-functions-egcq32
+update-audio-processing-functions-yqj8cy
+
       const directAudio = container.querySelector('audio');
       const directSrc = this.resolveAudioSource(directAudio);
       if (directAudio && directSrc) {
@@ -719,6 +722,7 @@ update-audio-processing-functions-egcq32
       if (linkWithMedia && linkSrc) {
         console.log('[WhatsApp AI] Áudio encontrado via atributo de mídia');
         return { src: linkSrc, element: linkWithMedia };
+update-audio-processing-functions-yqj8cy
 
       }
     }
@@ -728,7 +732,8 @@ update-audio-processing-functions-egcq32
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
-update-audio-processing-functions-egcq32
+update-audio-processing-functions-yqj8cy
+
 
     const audioElements = document.querySelectorAll('audio, source[src], source[data-src]');
     const allAudios = Array.from(audioElements).map(element => ({
@@ -739,8 +744,16 @@ update-audio-processing-functions-egcq32
     })).filter(item => !!item.src);
     console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
 
+update-audio-processing-functions-yqj8cy
+    if (allAudios.length === 0) {
+      if (this.lastKnownAudioSrc) {
+        console.log('[WhatsApp AI] Reutilizando último áudio conhecido global');
+        return this.lastKnownAudioSrc;
+      }
 
-    if (allAudios.length === 0) return null;
+      return null;
+    }
+
 
     // Pegar o mais recente (último na lista)
     const recentAudio = allAudios[allAudios.length - 1];
@@ -758,7 +771,8 @@ update-audio-processing-functions-egcq32
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
-update-audio-processing-functions-egcq32
+update-audio-processing-functions-yqj8cy
+
 
       const nearbySrc = this.resolveAudioSource(nearbyAudio);
       if (nearbyAudio && nearbySrc) {
@@ -830,15 +844,18 @@ update-audio-processing-functions-egcq32
         continue;
       }
 
-      if (/^(blob:|data:|https?:)/i.test(value)) {
-        return value;
-      }
-
+update-audio-processing-functions-yqj8cy
       try {
-        return new URL(value, window.location.href).toString();
+        const absolute = new URL(value, window.location.href).toString();
+        if (absolute) {
+          return absolute;
+        }
       } catch (error) {
         console.warn('[WhatsApp AI] Não foi possível resolver URL relativa de mídia', error);
       }
+
+      return value;
+
     }
 
     return null;
@@ -859,6 +876,7 @@ update-audio-processing-functions-egcq32
       const resolved = this.resolveElementUrl(sourceElement);
       if (resolved) {
         return resolved;
+update-audio-processing-functions-yqj8cy
 
       }
     }
