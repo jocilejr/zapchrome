@@ -644,11 +644,13 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioElement = messageElement.querySelector('audio');
       console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
 
+update-audio-processing-functions-yqj8cy
       const directAudioSrc = this.resolveAudioSource(audioElement);
       if (directAudioSrc) {
         console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
         this.lastKnownAudioSrc = directAudioSrc;
         return await this.processAudioBlob(directAudioSrc);
+
       }
 
       // Método 2: Buscar na estrutura do WhatsApp sem reproduzir
@@ -697,6 +699,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     ].filter(Boolean);
 
     for (const container of possibleContainers) {
+update-audio-processing-functions-yqj8cy
+
       const directAudio = container.querySelector('audio');
       const directSrc = this.resolveAudioSource(directAudio);
       if (directAudio && directSrc) {
@@ -718,6 +722,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       if (linkWithMedia && linkSrc) {
         console.log('[WhatsApp AI] Áudio encontrado via atributo de mídia');
         return { src: linkSrc, element: linkWithMedia };
+update-audio-processing-functions-yqj8cy
+
       }
     }
 
@@ -726,6 +732,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
   findRecentAudioBlob() {
     console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
+update-audio-processing-functions-yqj8cy
+
 
     const audioElements = document.querySelectorAll('audio, source[src], source[data-src]');
     const allAudios = Array.from(audioElements).map(element => ({
@@ -736,6 +744,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     })).filter(item => !!item.src);
     console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
 
+update-audio-processing-functions-yqj8cy
     if (allAudios.length === 0) {
       if (this.lastKnownAudioSrc) {
         console.log('[WhatsApp AI] Reutilizando último áudio conhecido global');
@@ -744,6 +753,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       return null;
     }
+
 
     // Pegar o mais recente (último na lista)
     const recentAudio = allAudios[allAudios.length - 1];
@@ -761,6 +771,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       // Verificar se há um elemento audio próximo
       const nearbyAudio = button.parentElement?.querySelector('audio') ||
                          button.closest('[class*="message"]')?.querySelector('audio');
+update-audio-processing-functions-yqj8cy
+
 
       const nearbySrc = this.resolveAudioSource(nearbyAudio);
       if (nearbyAudio && nearbySrc) {
@@ -832,6 +844,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         continue;
       }
 
+update-audio-processing-functions-yqj8cy
       try {
         const absolute = new URL(value, window.location.href).toString();
         if (absolute) {
@@ -842,6 +855,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }
 
       return value;
+
     }
 
     return null;
@@ -862,6 +876,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       const resolved = this.resolveElementUrl(sourceElement);
       if (resolved) {
         return resolved;
+update-audio-processing-functions-yqj8cy
+
       }
     }
 
