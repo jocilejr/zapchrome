@@ -31,23 +31,29 @@
     return null;
   }
 
-  function findChunkArray() {
+  function findWebpackChunkArray() {
     const safeWindow = typeof window !== 'undefined' ? window : null;
     if (!safeWindow) {
-      return null;
+      return { chunk: null, key: null };
     }
 
     try {
-      const windowKeys = Object.getOwnPropertyNames(safeWindow);
+      const windowKeys = Object.keys(safeWindow);
       for (const key of windowKeys) {
         try {
           const candidate = safeWindow[key];
-          if (
-            candidate &&
-            typeof candidate.push === 'function' &&
-            (Array.isArray(candidate) || /webpackChunk/i.test(key))
-          ) {
-            return candidate;
+          if (!candidate || typeof candidate.push !== 'function') {
+            continue;
+          }
+
+          if (key && key.startsWith('webpackChunk')) {
+            log('Chunk webpack identificado na chave', key);
+            return { chunk: candidate, key };
+          }
+
+          if (Array.isArray(candidate)) {
+            log('Chunk webpack identificado (array com push) na chave', key);
+            return { chunk: candidate, key };
           }
         } catch (innerError) {
           // Ignora problemas em propriedades individuais
@@ -59,10 +65,11 @@
 
     const legacy = safeWindow.webpackChunkwhatsapp_web_client;
     if (legacy && typeof legacy.push === 'function') {
-      return legacy;
+      log('Utilizando chunk webpack legado: webpackChunkwhatsapp_web_client');
+      return { chunk: legacy, key: 'webpackChunkwhatsapp_web_client' };
     }
 
-    return null;
+    return { chunk: null, key: null };
   }
 
   function ensureStoreInternal() {
@@ -130,7 +137,7 @@
       };
 
       const attemptHook = () => {
-        const chunk = findChunkArray();
+        const { chunk, key } = findWebpackChunkArray();
         if (!chunk) {
           if (Date.now() - chunkWaitStart >= chunkWaitTimeoutMs) {
             cleanup();
@@ -142,6 +149,9 @@
           return;
         }
 
+        if (key) {
+          log('Preparando injeção no chunk localizado na chave', key);
+        }
         injectChunk(chunk);
       };
 
