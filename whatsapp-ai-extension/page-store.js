@@ -32,21 +32,32 @@
   }
 
   function findChunkArray() {
+    const safeWindow = typeof window !== 'undefined' ? window : null;
+    if (!safeWindow) {
+      return null;
+    }
+
     try {
-      const windowKeys = Object.keys(window || {});
+      const windowKeys = Object.getOwnPropertyNames(safeWindow);
       for (const key of windowKeys) {
-        if (key.startsWith('webpackChunk')) {
-          const candidate = window[key];
-          if (candidate && typeof candidate.push === 'function') {
+        try {
+          const candidate = safeWindow[key];
+          if (
+            candidate &&
+            typeof candidate.push === 'function' &&
+            (Array.isArray(candidate) || /webpackChunk/i.test(key))
+          ) {
             return candidate;
           }
+        } catch (innerError) {
+          // Ignora problemas em propriedades individuais
         }
       }
     } catch (error) {
       log('Erro ao inspecionar window em busca do chunk webpack', error);
     }
 
-    const legacy = window.webpackChunkwhatsapp_web_client;
+    const legacy = safeWindow.webpackChunkwhatsapp_web_client;
     if (legacy && typeof legacy.push === 'function') {
       return legacy;
     }
@@ -68,6 +79,9 @@
       let resolved = false;
       let retryTimer = null;
       let timeout = null;
+      const chunkRetryInterval = 250;
+      const chunkWaitTimeoutMs = 8000;
+      const chunkWaitStart = Date.now();
 
       const cleanup = () => {
         if (retryTimer) {
@@ -118,7 +132,13 @@
       const attemptHook = () => {
         const chunk = findChunkArray();
         if (!chunk) {
-          retryTimer = setTimeout(attemptHook, 250);
+          if (Date.now() - chunkWaitStart >= chunkWaitTimeoutMs) {
+            cleanup();
+            reject(new Error('Timeout aguardando chunk webpack do WhatsApp'));
+            return;
+          }
+
+          retryTimer = setTimeout(attemptHook, chunkRetryInterval);
           return;
         }
 
