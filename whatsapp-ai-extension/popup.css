@@ -51,6 +51,47 @@ body {
   padding: 24px;
 }
 
+.tabs {
+  display: flex;
+  gap: 8px;
+  background: #F3F4F6;
+  padding: 6px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+}
+
+.tab-button {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #6B7280;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.tab-button:hover {
+  background: rgba(37, 211, 102, 0.08);
+  color: #128C7E;
+}
+
+.tab-button.active {
+  background: white;
+  color: #128C7E;
+  box-shadow: 0 4px 12px rgba(18, 140, 126, 0.15);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
 .section {
   margin-bottom: 24px;
 }
@@ -74,6 +115,7 @@ label {
 }
 
 input[type="text"],
+input[type="url"],
 input[type="password"],
 select,
 textarea {
@@ -238,6 +280,34 @@ button.loading svg {
   background: #EFF6FF;
   color: #1E40AF;
   border: 1px solid #BFDBFE;
+}
+
+.status.warning {
+  background: #FFFBEB;
+  color: #92400E;
+  border: 1px solid #FDE68A;
+}
+
+.webhook-info {
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.webhook-info p + p {
+  margin-top: 8px;
+}
+
+.webhook-info code {
+  background: rgba(55, 65, 81, 0.08);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
 }
 
 .footer {
