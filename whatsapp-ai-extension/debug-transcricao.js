@@ -26,21 +26,6 @@ async function debugTranscricaoCompleto() {
   }
   console.log('✅ API Key configurada');
 
-  // 3.1 Verificar estado do Store
-  console.log('\n🧠 VERIFICANDO ESTADO DO STORE...');
-  const storeReadyFlag = !!window.__zapPageStoreReady;
-  console.log(`WA_STORE_READY sinalizado: ${storeReadyFlag ? 'SIM' : 'NÃO'}`);
-
-  if (!storeReadyFlag && window.__zapStoreHelpers?.waitForStoreReadySignal) {
-    console.log('⏱️ Aguardando sinal WA_STORE_READY por até 4 segundos...');
-    try {
-      await window.__zapStoreHelpers.waitForStoreReadySignal(4000);
-      console.log('✅ Sinal WA_STORE_READY recebido durante o diagnóstico');
-    } catch (error) {
-      console.warn('⚠️ WA_STORE_READY não chegou dentro do tempo extra:', error.message || error);
-    }
-  }
-
   // 3. Testar API Key com OpenAI via background
   console.log('\n🔑 TESTANDO API KEY...');
   try {
@@ -152,32 +137,8 @@ async function debugTranscricaoCompleto() {
       if (messageId) {
         console.log(`🆔 ID da mensagem: ${messageId}`);
 
-        if (window.__zapStoreHelpers?.requestStoreBlob) {
-          console.log('🧪 Solicitando GET_AUDIO_BLOB com retentativa automática...');
-          try {
-            const helperResponse = await window.__zapStoreHelpers.requestStoreBlob(messageId);
-            const normalizedResult = await window.__zapStoreHelpers.normalizeHelperBlob(
-              helperResponse
-            );
-
-            if (normalizedResult?.blob instanceof Blob) {
-              console.log(
-                `✅ requestStoreBlob OK - ${normalizedResult.blob.size} bytes (${normalizedResult.blob.type ||
-                  normalizedResult.metadata?.mimeType ||
-                  helperResponse?.metadata?.mimeType ||
-                  'tipo desconhecido'})`
-              );
-            } else if (normalizedResult?.blob) {
-              console.log('⚠️ requestStoreBlob retornou dado sem formato Blob, inspecionando...');
-              console.log(normalizedResult);
-            } else {
-              console.error('❌ requestStoreBlob não retornou blob válido');
-            }
-          } catch (error) {
-            console.error('❌ Erro ao obter blob via requestStoreBlob:', error);
-          }
-        } else if (typeof window.whatsappAI.getWhatsAppMessageById === 'function') {
-          console.log('🧪 Solicitando GET_AUDIO_BLOB via bridge legado do Store...');
+        if (typeof window.whatsappAI.getWhatsAppMessageById === 'function') {
+          console.log('🧪 Solicitando GET_AUDIO_BLOB via bridge do Store...');
           try {
             const helperResponse = await window.whatsappAI.getWhatsAppMessageById(messageId);
             const normalizedBlob =
@@ -204,7 +165,7 @@ async function debugTranscricaoCompleto() {
             console.error('❌ Erro ao obter blob via bridge:', error);
           }
         } else {
-          console.warn('⚠️ Não há helper disponível para solicitar GET_AUDIO_BLOB diretamente');
+          console.warn('⚠️ Método getWhatsAppMessageById não disponível na instância whatsappAI');
         }
       } else {
         console.warn('⚠️ Não foi possível determinar o ID da mensagem de áudio');

@@ -166,127 +166,47 @@ function getMessageIdFromElement(element) {
   return null;
 }
 
-function waitForStoreReadySignal(extraTimeoutMs = 4000) {
-  if (window.__zapPageStoreReady) {
-    return Promise.resolve(true);
-  }
-
-  return new Promise((resolve, reject) => {
-    let timeoutId = null;
-
-    const cleanup = () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-        timeoutId = null;
-      }
-      window.removeEventListener('message', handleReadyEvent);
-    };
-
-    const handleReadyEvent = (event) => {
-      if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
-        return;
-      }
-
-      window.__zapPageStoreReady = true;
-      cleanup();
-      resolve(true);
-    };
-
-    window.addEventListener('message', handleReadyEvent);
-
-    timeoutId = setTimeout(() => {
-      cleanup();
-      reject(new Error('Timeout aguardando sinal WA_STORE_READY após falha inicial'));
-    }, extraTimeoutMs);
-  });
-}
-
 async function requestStoreBlob(messageId) {
   if (!messageId) {
     throw new Error('ID da mensagem inválido');
   }
 
-  const MAX_ATTEMPTS = 2;
-  let attempt = 0;
-  let waitedForReadySignal = false;
-
-  const executeStoreRequest = () =>
-    new Promise((resolve, reject) => {
-      const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-      const timeout = setTimeout(() => {
-        pendingStoreRequests.delete(requestId);
-        reject(new Error('Timeout aguardando resposta do Store'));
-      }, 10000);
-
-      pendingStoreRequests.set(requestId, { resolve, reject, timeout });
-
-      try {
-        window.postMessage(
-          {
-            type: WA_STORE_REQUEST,
-            action: 'GET_AUDIO_BLOB',
-            requestId,
-            messageId
-          },
-          '*'
-        );
-      } catch (error) {
-        clearTimeout(timeout);
-        pendingStoreRequests.delete(requestId);
-        reject(error);
-      }
-    });
-
-  while (attempt < MAX_ATTEMPTS) {
-    attempt += 1;
-
-    try {
-      await ensurePageStoreReady();
-    } catch (error) {
-      if (error && error.code === STORE_READY_TIMEOUT_CODE && !waitedForReadySignal) {
-        console.warn(
-          '[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado; aguardando sinal WA_STORE_READY para nova tentativa'
-        );
-
-        try {
-          await waitForStoreReadySignal();
-          waitedForReadySignal = true;
-          attempt -= 1;
-          continue;
-        } catch (waitError) {
-          console.warn('[WhatsApp AI] Sinal WA_STORE_READY não recebido no tempo extra aguardado', waitError);
-          return null;
-        }
-      }
-
-      throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
+  try {
+    await ensurePageStoreReady();
+  } catch (error) {
+    if (error && error.code === STORE_READY_TIMEOUT_CODE) {
+      console.warn('[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado');
+      return null;
     }
 
-    try {
-      if (waitedForReadySignal && attempt > 1) {
-        console.log('[WhatsApp AI] Repetindo solicitação de blob via Store após WA_STORE_READY');
-      }
-
-      const response = await executeStoreRequest();
-
-      if (waitedForReadySignal && attempt > 1) {
-        console.log('[WhatsApp AI] Blob recuperado com sucesso após segunda tentativa via Store');
-      }
-
-      return response;
-    } catch (error) {
-      if (attempt >= MAX_ATTEMPTS) {
-        throw error;
-      }
-
-      console.warn(
-        `[WhatsApp AI] Falha ao obter blob via Store na tentativa ${attempt}, tentando novamente`,
-        error
-      );
-    }
+    throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
   }
 
-  return null;
+  return new Promise((resolve, reject) => {
+    const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const timeout = setTimeout(() => {
+      pendingStoreRequests.delete(requestId);
+      reject(new Error('Timeout aguardando resposta do Store'));
+    }, 10000);
+
+    pendingStoreRequests.set(requestId, { resolve, reject, timeout });
+
+    try {
+      window.postMessage(
+        {
+          type: WA_STORE_REQUEST,
+          action: 'GET_AUDIO_BLOB',
+          requestId,
+          messageId
+        },
+        '*'
+      );
+    } catch (error) {
+      clearTimeout(timeout);
+      pendingStoreRequests.delete(requestId);
+      reject(error);
+    }
+  });
 }
 
 async function normalizeHelperBlob(response) {
@@ -324,8 +244,7 @@ if (typeof window !== 'undefined') {
     getMessageIdFromElement,
     requestStoreBlob,
     normalizeHelperBlob,
-    ensurePageStoreReady,
-    waitForStoreReadySignal
+    ensurePageStoreReady
   };
 }
 
@@ -1001,7 +920,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
             const normalized = await normalizeHelperBlob(storeResponse);
             if (normalized && normalized.blob) {
               audioBlob = normalized.blob;
-              storeMetadata = normalized.metadata || storeResponse?.metadata || null;
+              storeMetadata = normalized.metadata || storeResponse.metadata || null;
             }
           } catch (error) {
             console.warn('[WhatsApp AI] Falha ao recuperar áudio via Store', error);
@@ -1042,47 +961,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         const messageId = getMessageIdFromElement(messageElement);
         if (messageId) {
           try {
-            if (!window.__zapPageStoreReady) {
-              console.log(
-                '[WhatsApp AI] Aguardando readiness do Store antes do fallback final para mensagem',
-                messageId
-              );
-
-              try {
-                await ensurePageStoreReady();
-              } catch (ensureError) {
-                if (ensureError && ensureError.code === STORE_READY_TIMEOUT_CODE) {
-                  console.warn(
-                    '[WhatsApp AI] Timeout aguardando readiness antes da tentativa final; aguardando sinal WA_STORE_READY',
-                    ensureError
-                  );
-
-                  try {
-                    await waitForStoreReadySignal();
-                  } catch (waitError) {
-                    console.warn(
-                      '[WhatsApp AI] Não foi possível confirmar readiness do Store antes da última tentativa',
-                      waitError
-                    );
-                  }
-                } else {
-                  throw ensureError;
-                }
-              }
-            }
-
             console.log('[WhatsApp AI] Tentando fallback final via Store para mensagem', messageId);
             const storeResponse = await requestStoreBlob(messageId);
             const normalized = await normalizeHelperBlob(storeResponse);
             if (normalized && normalized.blob) {
               audioBlob = normalized.blob;
-              storeMetadata = normalized.metadata || storeResponse?.metadata || null;
-
-              if (window.__zapPageStoreReady) {
-                console.log(
-                  '[WhatsApp AI] Blob recuperado com Store pronto na tentativa final de fallback'
-                );
-              }
+              storeMetadata = normalized.metadata || storeResponse.metadata || null;
             }
           } catch (error) {
             console.warn('[WhatsApp AI] Fallback via Store também falhou', error);
