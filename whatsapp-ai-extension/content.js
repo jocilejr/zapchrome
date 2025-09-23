@@ -4,6 +4,225 @@ if (!window.__uiUpdate) {
 
 const update = (...args) => window.__uiUpdate(...args);
 
+const WA_STORE_REQUEST = 'WA_STORE_REQUEST';
+const WA_STORE_RESPONSE = 'WA_STORE_RESPONSE';
+const WA_STORE_READY = 'WA_STORE_READY';
+
+const pendingStoreRequests = new Map();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('message', (event) => {
+    if (event.source !== window || !event.data) {
+      return;
+    }
+
+    const { data } = event;
+
+    if (data.type === WA_STORE_READY) {
+      window.__zapPageStoreReady = true;
+      return;
+    }
+
+    if (data.type !== WA_STORE_RESPONSE || !data.requestId) {
+      return;
+    }
+
+    const pending = pendingStoreRequests.get(data.requestId);
+    if (!pending) {
+      return;
+    }
+
+    pendingStoreRequests.delete(data.requestId);
+    clearTimeout(pending.timeout);
+
+    if (data.success) {
+      pending.resolve(data);
+    } else {
+      pending.reject(new Error(data.error || 'Falha ao obter blob via Store'));
+    }
+  });
+}
+
+const ensurePageStoreReady = (() => {
+  let readyPromise = null;
+  let scriptInjected = false;
+
+  return () => {
+    if (window.__zapPageStoreReady) {
+      return Promise.resolve(true);
+    }
+
+    if (readyPromise) {
+      return readyPromise;
+    }
+
+    readyPromise = new Promise((resolve) => {
+      const handleReady = (event) => {
+        if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
+          return;
+        }
+
+        window.__zapPageStoreReady = true;
+        window.removeEventListener('message', handleReady);
+        resolve(true);
+      };
+
+      window.addEventListener('message', handleReady);
+
+      if (!scriptInjected) {
+        scriptInjected = true;
+
+        try {
+          const script = document.createElement('script');
+          script.type = 'text/javascript';
+          script.async = false;
+          script.src = chrome.runtime.getURL('page-store.js');
+          script.onload = () => {
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          };
+          script.onerror = () => {
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          };
+
+          const parent = document.documentElement || document.head || document.body;
+          if (parent && typeof parent.appendChild === 'function') {
+            parent.appendChild(script);
+          }
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao injetar page-store.js', error);
+        }
+      }
+    });
+
+    return readyPromise;
+  };
+})();
+
+function getMessageIdFromElement(element) {
+  if (!element) {
+    return null;
+  }
+
+  const attributeNames = [
+    'data-id',
+    'data-message-id',
+    'data-msg-id',
+    'data-msgid',
+    'data-messagekey'
+  ];
+
+  const datasetKeys = ['id', 'messageId', 'msgId', 'msgid', 'serializedId'];
+
+  let current = element;
+  while (current && current !== document) {
+    if (current.dataset) {
+      for (const key of datasetKeys) {
+        if (current.dataset[key]) {
+          return current.dataset[key];
+        }
+      }
+    }
+
+    if (typeof current.getAttribute === 'function') {
+      for (const attr of attributeNames) {
+        const value = current.getAttribute(attr);
+        if (typeof value === 'string' && value.trim()) {
+          return value.trim();
+        }
+      }
+    }
+
+    current = current.parentElement || current.parentNode;
+  }
+
+  return null;
+}
+
+async function requestStoreBlob(messageId) {
+  if (!messageId) {
+    throw new Error('ID da mensagem inválido');
+  }
+
+  try {
+    await ensurePageStoreReady();
+  } catch (error) {
+    throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const timeout = setTimeout(() => {
+      pendingStoreRequests.delete(requestId);
+      reject(new Error('Timeout aguardando resposta do Store'));
+    }, 10000);
+
+    pendingStoreRequests.set(requestId, { resolve, reject, timeout });
+
+    try {
+      window.postMessage(
+        {
+          type: WA_STORE_REQUEST,
+          action: 'GET_AUDIO_BLOB',
+          requestId,
+          messageId
+        },
+        '*'
+      );
+    } catch (error) {
+      clearTimeout(timeout);
+      pendingStoreRequests.delete(requestId);
+      reject(error);
+    }
+  });
+}
+
+async function normalizeHelperBlob(response) {
+  if (!response || typeof response !== 'object') {
+    return null;
+  }
+
+  const metadata = response.metadata && typeof response.metadata === 'object'
+    ? { ...response.metadata }
+    : {};
+
+  const blob = response.blob;
+  if (!blob) {
+    return { blob: null, metadata };
+  }
+
+  if (blob.type) {
+    return { blob, metadata };
+  }
+
+  if (metadata.mimeType && typeof blob.arrayBuffer === 'function') {
+    try {
+      const buffer = await blob.arrayBuffer();
+      return { blob: new Blob([buffer], { type: metadata.mimeType }), metadata };
+    } catch (error) {
+      console.warn('[WhatsApp AI] Falha ao normalizar blob retornado pelo Store', error);
+    }
+  }
+
+  return { blob, metadata };
+}
+
+if (typeof window !== 'undefined') {
+  window.__zapStoreHelpers = {
+    getMessageIdFromElement,
+    requestStoreBlob,
+    normalizeHelperBlob,
+    ensurePageStoreReady
+  };
+}
+
+ensurePageStoreReady().catch((error) => {
+  console.warn('[WhatsApp AI] Não foi possível preparar o Store do WhatsApp', error);
+});
+
 // WhatsApp AI Assistant Content Script - Versão Limpa
 class WhatsAppAIAssistant {
   constructor() {
@@ -654,12 +873,30 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       let audioBlob = null;
       let audioElement = this.findPlayableAudioElementWithin(messageElement);
+      let storeMetadata = null;
 
       if (audioElement) {
         console.log('[WhatsApp AI] Áudio encontrado diretamente na mensagem');
         await this.ensureAudioReady(audioElement);
         audioBlob = await this.fetchBlobFromAudioElement(audioElement);
         this.lastKnownAudioSrc = audioElement.currentSrc || audioElement.src || null;
+      }
+
+      if (!audioBlob) {
+        const messageId = getMessageIdFromElement(messageElement);
+        if (messageId) {
+          try {
+            console.log('[WhatsApp AI] Solicitando blob via Store para mensagem', messageId);
+            const storeResponse = await requestStoreBlob(messageId);
+            const normalized = await normalizeHelperBlob(storeResponse);
+            if (normalized && normalized.blob) {
+              audioBlob = normalized.blob;
+              storeMetadata = normalized.metadata || storeResponse.metadata || null;
+            }
+          } catch (error) {
+            console.warn('[WhatsApp AI] Falha ao recuperar áudio via Store', error);
+          }
+        }
       }
 
       if (!audioBlob && this.lastKnownAudioSrc) {
@@ -680,12 +917,29 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }
 
       if (!audioBlob) {
+        const messageId = getMessageIdFromElement(messageElement);
+        if (messageId) {
+          try {
+            console.log('[WhatsApp AI] Tentando fallback final via Store para mensagem', messageId);
+            const storeResponse = await requestStoreBlob(messageId);
+            const normalized = await normalizeHelperBlob(storeResponse);
+            if (normalized && normalized.blob) {
+              audioBlob = normalized.blob;
+              storeMetadata = normalized.metadata || storeResponse.metadata || null;
+            }
+          } catch (error) {
+            console.warn('[WhatsApp AI] Fallback via Store também falhou', error);
+          }
+        }
+      }
+
+      if (!audioBlob) {
         throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
       }
 
       update({ status: 'Enviando áudio para o Whisper...' });
 
-      const mimeType = audioBlob.type || 'audio/ogg';
+      const mimeType = audioBlob.type || storeMetadata?.mimeType || 'audio/ogg';
       const transcription = await this.transcribeBlobWithWhisper(audioBlob, mimeType);
 
       console.log('[WhatsApp AI] Transcrição concluída via Whisper');
