@@ -9,9 +9,7 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://api.openai.com/*",
-    "https://*/*",
-    "http://*/*"
+    "https://api.openai.com/*"
   ],
   "content_scripts": [
     {
