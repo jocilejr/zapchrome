@@ -220,6 +220,52 @@ async function run() {
 
   storeRequestCount = 0;
 
+  let failingDomAttempts = 0;
+
+  const failingDomContext = {
+    findPlayableAudioElementWithin: () => null,
+    ensureAudioReady: async () => {
+      throw new Error('Não deve preparar <audio> direto da mensagem');
+    },
+    fetchBlobFromAudioElement: async () => {
+      throw new Error('Não deve tentar buscar blob diretamente');
+    },
+    fetchBlobFromUrl: async () => {
+      throw new Error('Não deve tentar reutilizar URL anterior');
+    },
+    getLastVoiceBlob: async () => {
+      failingDomAttempts += 1;
+      setImmediate(() => {
+        messageHandlers.forEach((handler) => {
+          handler({ source: window, data: { type: 'WA_STORE_READY' } });
+        });
+      });
+      throw new Error('Falha simulada ao obter áudio do DOM');
+    },
+    lastKnownAudioSrc: null,
+    transcribeBlobWithWhisper: async (blob, mimeType) => {
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      assert.strictEqual(buffer.toString(), 'audio-from-store');
+      assert.strictEqual(mimeType, 'audio/ogg');
+      return 'store-fallback-transcribed';
+    }
+  };
+
+  const storeFallbackTranscription = await AssistantClass.prototype.transcribeAudio.call(
+    failingDomContext,
+    messageElement
+  );
+
+  assert.strictEqual(storeFallbackTranscription, 'store-fallback-transcribed');
+  assert.strictEqual(failingDomAttempts, 1, 'Deve tentar recuperar áudio do DOM uma vez');
+  assert.strictEqual(
+    storeRequestCount,
+    1,
+    'Fallback final deve recorrer ao Store após readiness ser sinalizado'
+  );
+
+  storeRequestCount = 0;
+
   // Libera a promise de readiness do Store para o cenário principal
   messageHandlers.forEach((handler) => {
     handler({ source: window, data: { type: 'WA_STORE_READY' } });
