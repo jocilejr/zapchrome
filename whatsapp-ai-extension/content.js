@@ -4,6 +4,7 @@ if (!window.__uiUpdate) {
 
 const update = (...args) => window.__uiUpdate(...args);
 
+add-action-get_last_audio_blob-cp9r6s
 // Aguarda um tempo (promessa)
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -50,6 +51,7 @@ function getLastGlobalAudioUrl() {
   return last?.src || null;
 }
 
+
 // WhatsApp AI Assistant Content Script - Versão Limpa
 class WhatsAppAIAssistant {
   constructor() {
@@ -61,6 +63,7 @@ class WhatsAppAIAssistant {
     };
     this.apiKeyConfigured = false;
     this.lastKnownAudioSrc = null;
+add-action-get_last_audio_blob-cp9r6s
     this.pageStoreListenerAttached = false;
     this.pageStoreScriptInjected = false;
     this.pageStoreBridgeReady = false;
@@ -70,6 +73,7 @@ class WhatsAppAIAssistant {
     this.pendingStoreRequests = new Map();
     this.handlePageStoreMessage = this.handlePageStoreMessage.bind(this);
     this.setupPageStoreMessaging();
+
     console.log('[WhatsApp AI] Construtor iniciado');
     this.init();
   }
@@ -112,6 +116,7 @@ class WhatsAppAIAssistant {
     } catch (error) {
       console.warn('[WhatsApp AI] Não foi possível verificar estado da API Key', error);
       this.apiKeyConfigured = false;
+add-action-get_last_audio_blob-cp9r6s
     }
 
     return this.apiKeyConfigured;
@@ -310,6 +315,7 @@ class WhatsAppAIAssistant {
     }
 
     return null;
+
   }
 
   observeConversationChanges() {
@@ -710,6 +716,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
   isAudioReady(audioElement) {
     if (!audioElement) {
       return false;
+add-action-get_last_audio_blob-cp9r6s
     }
 
     const duration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
@@ -934,10 +941,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     const downloadable = messageElement.querySelector('a[href*=".opus"], a[href*=".ogg"], a[href*=".mp3"], a[href*=".m4a"], a[href*=".mp4"]');
     if (downloadable?.href) {
       return downloadable.href;
+
     }
 
     return null;
   }
+add-action-get_last_audio_blob-cp9r6s
 
   async processAudioBlob(source, mimeHint, metadata = {}) {
     if (!source) {
@@ -1018,9 +1027,12 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       return audio;
     }
 
-    return null;
+
+      check();
+    });
   }
 
+add-action-get_last_audio_blob-cp9r6s
   async waitForAudioElement(timeoutMs = 5000) {
     let resolved = this.findLatestAudioElement();
     if (resolved) {
@@ -1075,6 +1087,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       throw new Error('Áudio em mensagem: NAO ENCONTRADO');
     }
 
+
     await this.ensureAudioReady(audioElement, timeoutMs);
     const blob = await this.fetchBlobFromAudioElement(audioElement);
     return { blob, audioElement };
@@ -1086,6 +1099,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     try {
       update({ status: 'Procurando áudio...' });
 
+add-action-get_last_audio_blob-cp9r6s
       const messageId = this.extractMessageIdFromElement(messageElement);
       let helperResult = null;
       let normalizedHelper = null;
@@ -1187,6 +1201,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }
 
       throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
+
     } catch (error) {
       console.error('[WhatsApp AI] ERRO DETALHADO:', error);
       throw new Error(`Erro na transcrição: ${error.message}`);
