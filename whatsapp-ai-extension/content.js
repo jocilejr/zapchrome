@@ -9,6 +9,8 @@ const WA_STORE_RESPONSE = 'WA_STORE_RESPONSE';
 const WA_STORE_READY = 'WA_STORE_READY';
 
 const pendingStoreRequests = new Map();
+const STORE_READY_TIMEOUT_MS = 2000;
+const STORE_READY_TIMEOUT_CODE = 'WA_STORE_READY_TIMEOUT';
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {
@@ -56,18 +58,35 @@ const ensurePageStoreReady = (() => {
       return readyPromise;
     }
 
-    readyPromise = new Promise((resolve) => {
+    const promise = new Promise((resolve, reject) => {
+      let readinessTimeout = null;
+
+      const cleanup = () => {
+        window.removeEventListener('message', handleReady);
+        if (readinessTimeout) {
+          clearTimeout(readinessTimeout);
+          readinessTimeout = null;
+        }
+      };
+
       const handleReady = (event) => {
         if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
           return;
         }
 
         window.__zapPageStoreReady = true;
-        window.removeEventListener('message', handleReady);
+        cleanup();
         resolve(true);
       };
 
       window.addEventListener('message', handleReady);
+
+      readinessTimeout = setTimeout(() => {
+        cleanup();
+        const timeoutError = new Error('Timeout aguardando readiness do Store');
+        timeoutError.code = STORE_READY_TIMEOUT_CODE;
+        reject(timeoutError);
+      }, STORE_READY_TIMEOUT_MS);
 
       if (!scriptInjected) {
         scriptInjected = true;
@@ -96,6 +115,11 @@ const ensurePageStoreReady = (() => {
           console.warn('[WhatsApp AI] Falha ao injetar page-store.js', error);
         }
       }
+    });
+
+    readyPromise = promise.catch((error) => {
+      readyPromise = null;
+      throw error;
     });
 
     return readyPromise;
@@ -150,6 +174,11 @@ async function requestStoreBlob(messageId) {
   try {
     await ensurePageStoreReady();
   } catch (error) {
+    if (error && error.code === STORE_READY_TIMEOUT_CODE) {
+      console.warn('[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado');
+      return null;
+    }
+
     throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
   }
 
@@ -169,6 +198,39 @@ async function requestStoreBlob(messageId) {
           action: 'GET_AUDIO_BLOB',
           requestId,
           messageId
+        },
+        '*'
+      );
+    } catch (error) {
+      clearTimeout(timeout);
+      pendingStoreRequests.delete(requestId);
+      reject(error);
+    }
+  });
+}
+
+async function requestLastStoreAudioBlob() {
+  try {
+    await ensurePageStoreReady();
+  } catch (error) {
+    throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
+  }
+
+  return new Promise((resolve, reject) => {
+    const requestId = `wa_store_last_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const timeout = setTimeout(() => {
+      pendingStoreRequests.delete(requestId);
+      reject(new Error('Timeout aguardando blob mais recente do Store'));
+    }, 10000);
+
+    pendingStoreRequests.set(requestId, { resolve, reject, timeout });
+
+    try {
+      window.postMessage(
+        {
+          type: WA_STORE_REQUEST,
+          action: 'GET_LAST_AUDIO_BLOB',
+          requestId
         },
         '*'
       );
@@ -214,6 +276,7 @@ if (typeof window !== 'undefined') {
   window.__zapStoreHelpers = {
     getMessageIdFromElement,
     requestStoreBlob,
+    requestLastStoreAudioBlob,
     normalizeHelperBlob,
     ensurePageStoreReady
   };
@@ -489,172 +552,41 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     const messages = [];
     const messageElements = document.querySelectorAll('[data-testid="msg-container"]');
     const lastMessages = Array.from(messageElements).slice(-limit);
-    
+
     for (const msgElement of lastMessages) {
       const textElement = msgElement.querySelector('[data-testid="selectable-text"]');
       if (textElement && textElement.innerText.trim()) {
-        const isOutgoing = msgElement.querySelector('[data-testid="tail-out"]');
-        const sender = isOutgoing ? 'Você' : 'Contato';
-        messages.push(`${sender}: ${textElement.innerText.trim()}`);
+        const isOutgoing = Boolean(msgElement.querySelector('[data-testid="tail-out"]'));
+        messages.push({
+          text: textElement.innerText.trim(),
+          isOutgoing,
+          sender: isOutgoing ? 'Você' : 'Contato',
+          isAudio: false
+        });
       }
     }
-    
+
     return messages;
   }
 
   async getLastMessagesWithAudio(limit = 8) {
-    console.log('[WhatsApp AI] Buscando mensagens com transcrição de áudio...');
-    const messages = [];
-    
-    // Seletores mais abrangentes para mensagens
-    const messageSelectors = [
-      '[data-testid="msg-container"]',
-      '[data-testid="conversation-panel-messages"] > div > div',
-      '.message-in, .message-out',
-      '[class*="message"]'
-    ];
-    
-    let messageElements = [];
-    
-    // Tentar encontrar mensagens com seletores diferentes
-    for (const selector of messageSelectors) {
-      messageElements = document.querySelectorAll(selector);
-      if (messageElements.length > 0) {
-        console.log(`[WhatsApp AI] ${messageElements.length} mensagens encontradas com seletor: ${selector}`);
-        break;
+    console.log('[WhatsApp AI] Buscando últimas mensagens e áudio disponível...');
+    const messages = await this.getTextOnlyMessages(limit);
+
+    try {
+      const transcription = await this.transcribeAudio();
+      if (transcription) {
+        messages.push({
+          text: `${transcription} (mensagem transcrita de áudio)`,
+          isOutgoing: false,
+          sender: 'Contato',
+          isAudio: true
+        });
       }
+    } catch (error) {
+      console.warn('[WhatsApp AI] Nenhum áudio transcrito. Continuando apenas com mensagens de texto.', error);
     }
-    
-    if (messageElements.length === 0) {
-      console.log('[WhatsApp AI] Nenhuma mensagem encontrada - tentando método alternativo');
-      
-      // Método alternativo: buscar por área de mensagens
-      const chatArea = document.querySelector('[data-testid="conversation-panel-messages"]') ||
-                      document.querySelector('#main') ||
-                      document.querySelector('[class*="chat"]');
-      
-      if (chatArea) {
-        messageElements = chatArea.querySelectorAll('div[class*="message"], div[data-id]');
-        console.log(`[WhatsApp AI] Método alternativo encontrou ${messageElements.length} elementos`);
-      }
-    }
-    
-    if (messageElements.length === 0) {
-      console.log('[WhatsApp AI] Nenhuma mensagem encontrada');
-      return messages;
-    }
-    
-    // Pega as últimas mensagens
-    const lastMessages = Array.from(messageElements).slice(-limit);
-    console.log(`[WhatsApp AI] Processando últimas ${lastMessages.length} mensagens`);
-    
-    for (let index = 0; index < lastMessages.length; index++) {
-      const msgElement = lastMessages[index];
-      
-      // Determinar se é mensagem enviada ou recebida
-      const isOutgoing = msgElement.classList.contains('message-out') || 
-                        msgElement.querySelector('[data-testid="tail-out"]') ||
-                        msgElement.closest('.message-out') ||
-                        msgElement.querySelector('[data-icon="msg-time"]')?.closest('[class*="out"]');
-      
-      // Seletores mais abrangentes para áudio
-      const audioSelectors = [
-        '[data-testid="audio-play-button"]',
-        '[data-testid="ptt-play-button"]',
-        '[data-icon="audio-play"]',
-        '.audio-play-button',
-        'button[aria-label*="Play"]',
-        'button[aria-label*="Reproduzir"]',
-        '[class*="audio"] button',
-        'audio'
-      ];
-      
-      let audioElement = null;
-      for (const selector of audioSelectors) {
-        audioElement = msgElement.querySelector(selector);
-        if (audioElement) {
-          console.log(`[WhatsApp AI] Áudio encontrado com seletor: ${selector}`);
-          break;
-        }
-      }
-      
-      if (audioElement) {
-        console.log(`[WhatsApp AI] Encontrado áudio na mensagem ${index + 1}, transcrevendo...`);
-        
-        try {
-          const transcription = await this.transcribeAudio(msgElement);
-          
-          messages.push({
-            text: `${transcription} (mensagem transcrita de áudio)`,
-            isOutgoing: !!isOutgoing,
-            sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: true
-          });
-          
-          console.log(`[WhatsApp AI] Áudio transcrito: ${transcription.substring(0, 50)}...`);
-        } catch (error) {
-          console.error('[WhatsApp AI] Erro na transcrição:', error);
-          
-          // Mensagem de fallback mais informativa
-          const errorMsg = error.message.includes('API key') ? 
-            '[ÁUDIO - erro na API Key]' : 
-            '[ÁUDIO - erro na transcrição]';
-            
-          messages.push({
-            text: errorMsg,
-            isOutgoing: !!isOutgoing,
-            sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: true
-          });
-        }
-        continue;
-      }
-      
-      // Mensagens de texto normais - seletores mais abrangentes
-      const textSelectors = [
-        '[data-testid="selectable-text"]',
-        '.selectable-text',
-        '[class*="selectable"]',
-        '.copyable-text',
-        '[class*="copyable"]',
-        'span[dir="ltr"]',
-        '[class*="text"] span'
-      ];
-      
-      let textElement = null;
-      for (const selector of textSelectors) {
-        textElement = msgElement.querySelector(selector);
-        if (textElement && textElement.innerText.trim()) {
-          break;
-        }
-      }
-      
-      if (textElement) {
-        const text = textElement.innerText.trim();
-        if (text && text.length > 0) {
-          messages.push({
-            text: text,
-            isOutgoing: !!isOutgoing,
-            sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: false
-          });
-          console.log(`[WhatsApp AI] Mensagem texto ${index + 1}: ${text.substring(0, 50)}...`);
-        }
-      } else {
-        // Fallback para texto
-        const fallbackText = msgElement.innerText?.trim();
-        if (fallbackText && fallbackText.length > 0 && !fallbackText.includes('WhatsApp')) {
-          messages.push({
-            text: fallbackText,
-            isOutgoing: !!isOutgoing,
-            sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: false
-          });
-          console.log(`[WhatsApp AI] Texto fallback ${index + 1}: ${fallbackText.substring(0, 50)}...`);
-        }
-      }
-    }
-    
+
     console.log(`[WhatsApp AI] Total: ${messages.length} mensagens processadas`);
     return messages;
   }
@@ -865,82 +797,23 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return { blob, audioElement };
   }
 
-  async transcribeAudio(messageElement) {
+  async transcribeAudio() {
     console.log('[WhatsApp AI] === INICIANDO TRANSCRIÇÃO DE ÁUDIO ===');
 
     try {
       update({ status: 'Procurando áudio...' });
 
-      let audioBlob = null;
-      let audioElement = this.findPlayableAudioElementWithin(messageElement);
-      let storeMetadata = null;
+      const storeResponse = await requestLastStoreAudioBlob();
+      const normalized = await normalizeHelperBlob(storeResponse);
 
-      if (audioElement) {
-        console.log('[WhatsApp AI] Áudio encontrado diretamente na mensagem');
-        await this.ensureAudioReady(audioElement);
-        audioBlob = await this.fetchBlobFromAudioElement(audioElement);
-        this.lastKnownAudioSrc = audioElement.currentSrc || audioElement.src || null;
-      }
-
-      if (!audioBlob) {
-        const messageId = getMessageIdFromElement(messageElement);
-        if (messageId) {
-          try {
-            console.log('[WhatsApp AI] Solicitando blob via Store para mensagem', messageId);
-            const storeResponse = await requestStoreBlob(messageId);
-            const normalized = await normalizeHelperBlob(storeResponse);
-            if (normalized && normalized.blob) {
-              audioBlob = normalized.blob;
-              storeMetadata = normalized.metadata || storeResponse.metadata || null;
-            }
-          } catch (error) {
-            console.warn('[WhatsApp AI] Falha ao recuperar áudio via Store', error);
-          }
-        }
-      }
-
-      if (!audioBlob && this.lastKnownAudioSrc) {
-        try {
-          console.log('[WhatsApp AI] Reutilizando último áudio conhecido');
-          audioBlob = await this.fetchBlobFromUrl(this.lastKnownAudioSrc);
-        } catch (error) {
-          console.warn('[WhatsApp AI] Falha ao reutilizar último áudio conhecido', error);
-        }
-      }
-
-      if (!audioBlob) {
-        console.log('[WhatsApp AI] Buscando último áudio disponível no DOM');
-        const lastAudio = await this.getLastVoiceBlob();
-        audioBlob = lastAudio.blob;
-        audioElement = lastAudio.audioElement;
-        this.lastKnownAudioSrc = audioElement?.currentSrc || audioElement?.src || this.lastKnownAudioSrc;
-      }
-
-      if (!audioBlob) {
-        const messageId = getMessageIdFromElement(messageElement);
-        if (messageId) {
-          try {
-            console.log('[WhatsApp AI] Tentando fallback final via Store para mensagem', messageId);
-            const storeResponse = await requestStoreBlob(messageId);
-            const normalized = await normalizeHelperBlob(storeResponse);
-            if (normalized && normalized.blob) {
-              audioBlob = normalized.blob;
-              storeMetadata = normalized.metadata || storeResponse.metadata || null;
-            }
-          } catch (error) {
-            console.warn('[WhatsApp AI] Fallback via Store também falhou', error);
-          }
-        }
-      }
-
-      if (!audioBlob) {
-        throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
+      if (!normalized || !normalized.blob) {
+        throw new Error('Nenhum blob de áudio disponível');
       }
 
       update({ status: 'Enviando áudio para o Whisper...' });
 
-      const mimeType = audioBlob.type || storeMetadata?.mimeType || 'audio/ogg';
-      const transcription = await this.transcribeBlobWithWhisper(audioBlob, mimeType);
+      const mimeType = normalized.blob.type || normalized.metadata?.mimeType || 'audio/ogg';
+      const transcription = await this.transcribeBlobWithWhisper(normalized.blob, mimeType);
 
       console.log('[WhatsApp AI] Transcrição concluída via Whisper');
       return transcription;
