@@ -1281,12 +1281,43 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     
     if (messageInput) {
       messageInput.focus();
-      messageInput.textContent = text;
-      
+
+      if (typeof messageInput.select === 'function') {
+        try {
+          messageInput.select();
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao selecionar campo com select()', error);
+        }
+      } else if (messageInput.isContentEditable) {
+        const selection = window.getSelection?.();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(messageInput);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }
+
+      let insertedWithCommand = false;
+
+      if (typeof document.execCommand === 'function') {
+        try {
+          insertedWithCommand = document.execCommand('insertText', false, text);
+          console.log('[WhatsApp AI] insertText via execCommand', insertedWithCommand ? 'sucesso' : 'falhou');
+        } catch (error) {
+          console.warn('[WhatsApp AI] execCommand insertText falhou', error);
+        }
+      }
+
+      if (!insertedWithCommand) {
+        messageInput.textContent = text;
+        console.log('[WhatsApp AI] Fallback via atribuição direta aplicado');
+      }
+
       // Dispara eventos
       messageInput.dispatchEvent(new Event('input', { bubbles: true }));
       messageInput.dispatchEvent(new Event('change', { bubbles: true }));
-      
+
       console.log('[WhatsApp AI] Texto inserido');
     } else {
       console.log('[WhatsApp AI] Campo de input não encontrado');
