@@ -7,6 +7,7 @@ const { Blob } = require('buffer');
 async function run() {
   const messageHandlers = new Set();
   const storeBlob = new Blob(['audio-from-store']);
+  let storeRequestCount = 0;
 
   const window = {};
   global.window = window;
@@ -19,6 +20,7 @@ async function run() {
     }
 
     if (payload.type === 'WA_STORE_REQUEST') {
+      storeRequestCount += 1;
       setImmediate(() => {
         messageHandlers.forEach((handler) => {
           handler({
@@ -127,11 +129,6 @@ async function run() {
 
   vm.runInThisContext(scriptContent, { filename: 'content.js' });
 
-  // Libera a promise de readiness do Store
-  messageHandlers.forEach((handler) => {
-    handler({ source: window, data: { type: 'WA_STORE_READY' } });
-  });
-
   const helpers = window.__zapStoreHelpers;
   assert.ok(helpers, 'Helpers do Store devem estar disponíveis globalmente');
 
@@ -182,18 +179,66 @@ async function run() {
     vm.runInThisContext('typeof WhatsAppAIAssistant !== "undefined" ? WhatsAppAIAssistant : undefined');
   assert.ok(AssistantClass, 'Classe WhatsAppAIAssistant deve estar disponível');
 
+  const fallbackBlob = new Blob(['audio-from-dom-fallback']);
+  let fallbackUsed = false;
+
+  const fallbackContext = {
+    findPlayableAudioElementWithin: () => null,
+    ensureAudioReady: async () => {
+      throw new Error('Não deve preparar <audio> direto da mensagem');
+    },
+    fetchBlobFromAudioElement: async () => {
+      throw new Error('Não deve tentar buscar blob diretamente');
+    },
+    fetchBlobFromUrl: async () => {
+      throw new Error('Não deve tentar reutilizar URL anterior');
+    },
+    getLastVoiceBlob: async () => {
+      fallbackUsed = true;
+      return {
+        blob: fallbackBlob,
+        audioElement: { currentSrc: 'blob:fallback-audio' }
+      };
+    },
+    lastKnownAudioSrc: null,
+    transcribeBlobWithWhisper: async (blob, mimeType) => {
+      const buffer = Buffer.from(await blob.arrayBuffer());
+      assert.strictEqual(buffer.toString(), 'audio-from-dom-fallback');
+      assert.strictEqual(mimeType, 'audio/ogg');
+      return 'fallback-transcribed-text';
+    }
+  };
+
+  const fallbackTranscription = await AssistantClass.prototype.transcribeAudio.call(
+    fallbackContext,
+    messageElement
+  );
+
+  assert.strictEqual(fallbackTranscription, 'fallback-transcribed-text');
+  assert.strictEqual(fallbackUsed, true, 'Deve recorrer ao último áudio disponível no DOM');
+  assert.strictEqual(storeRequestCount, 0, 'Não deve enviar requisição ao Store quando readiness expira');
+
+  storeRequestCount = 0;
+
+  // Libera a promise de readiness do Store para o cenário principal
+  messageHandlers.forEach((handler) => {
+    handler({ source: window, data: { type: 'WA_STORE_READY' } });
+  });
+
   const transcription = await AssistantClass.prototype.transcribeAudio.call(
     assistantContext,
     messageElement
   );
 
   assert.strictEqual(transcription, 'transcribed-text');
+  assert.strictEqual(storeRequestCount, 1, 'Deve enviar uma requisição ao Store quando readiness está OK');
   assert.strictEqual(
     messageHandlers.size > 0,
     true,
     'Listeners de mensagem devem permanecer registrados até conclusão'
   );
 
+  console.log('✔ Fallback via DOM funciona quando WA_STORE_READY não ocorre');
   console.log('✔ Fallback para Store funciona quando não há <audio> no DOM');
 }
 
