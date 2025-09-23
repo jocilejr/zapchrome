@@ -9,52 +9,83 @@ async function run() {
   const originalClearTimeout = global.clearTimeout;
   const acceleratedTimeouts = new Set();
 
-update-timeout-handling-in-page-store-readiness-etx9o8
-  const fakeTimeouts = new Map();
-  let fakeTimeoutId = 1;
-  const originalSetTimeout = global.setTimeout;
-  const originalClearTimeout = global.clearTimeout;
-
-  global.setTimeout = (fn, delay, ...args) => {
+  global.setTimeout = function patchedSetTimeout(fn, delay, ...args) {
     if (delay === 2000) {
-      const id = fakeTimeoutId++;
-      fakeTimeouts.set(id, { fn, args, cleared: false });
-      process.nextTick(() => {
-        const entry = fakeTimeouts.get(id);
-        if (!entry || entry.cleared) {
-          return;
+      const handle = {
+        _isAcceleratedStoreTimeout: true,
+        cancelled: false,
+        ref() {
+          return handle;
+        },
+        unref() {
+          return handle;
         }
-        fakeTimeouts.delete(id);
-        entry.fn(...entry.args);
+      };
+
+      acceleratedTimeouts.add(handle);
+
+      setImmediate(() => {
+        if (!handle.cancelled) {
+          fn(...args);
+        }
+        acceleratedTimeouts.delete(handle);
       });
-      return id;
+
+      return handle;
     }
 
     return originalSetTimeout(fn, delay, ...args);
   };
 
-  global.clearTimeout = (id) => {
-    if (fakeTimeouts.has(id)) {
-      fakeTimeouts.get(id).cleared = true;
-      fakeTimeouts.delete(id);
+  global.clearTimeout = function patchedClearTimeout(handle) {
+    if (handle && handle._isAcceleratedStoreTimeout) {
+      handle.cancelled = true;
+      acceleratedTimeouts.delete(handle);
       return;
     }
 
-    return originalClearTimeout(id);
+    return originalClearTimeout(handle);
   };
 
-  const window = {};
-  global.window = window;
-  window.window = window;
-  window.__uiUpdate = () => {};
+  const restoreTimers = () => {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+  };
+
+  const originalWarn = console.warn;
+  let readinessTimeoutWarnings = 0;
+  let readinessTimedOutFlag = false;
+
+  console.warn = (...args) => {
+    if (
+      args.length > 0 &&
+      typeof args[0] === 'string' &&
+      args[0].includes('Store do WhatsApp não sinalizou readiness no tempo esperado')
+    ) {
+      readinessTimedOutFlag = true;
+      readinessTimeoutWarnings += 1;
+    }
+
+    return originalWarn.apply(console, args);
+  };
 
   try {
+    const messageHandlers = new Set();
+    const storeBlob = new Blob(['audio-from-store']);
+    let storeRequestCount = 0;
+
+    const window = {};
+    global.window = window;
+    window.window = window;
+    window.__uiUpdate = () => {};
+
     window.postMessage = (payload) => {
       if (!payload || typeof payload !== 'object') {
         return;
       }
 
       if (payload.type === 'WA_STORE_REQUEST') {
+        storeRequestCount += 1;
         setImmediate(() => {
           messageHandlers.forEach((handler) => {
             handler({
@@ -85,7 +116,6 @@ update-timeout-handling-in-page-store-readiness-etx9o8
     };
 
     const fakeScriptNodes = [];
-
 
     global.document = {
       readyState: 'loading',
@@ -134,7 +164,6 @@ update-timeout-handling-in-page-store-readiness-etx9o8
       },
       body: { appendChild() {} }
     };
-update-timeout-handling-in-page-store-readiness-etx9o8
 
     global.chrome = {
       runtime: {
@@ -180,6 +209,27 @@ update-timeout-handling-in-page-store-readiness-etx9o8
       'getMessageIdFromElement deve extrair id da mensagem'
     );
 
+    const assistantContext = {
+      findPlayableAudioElementWithin: () => null,
+      ensureAudioReady: async () => {},
+      fetchBlobFromAudioElement: async () => {
+        throw new Error('Não deve tentar buscar blob diretamente');
+      },
+      fetchBlobFromUrl: async () => {
+        throw new Error('Não deve tentar reutilizar URL anterior');
+      },
+      getLastVoiceBlob: async () => {
+        throw new Error('Não deve recorrer ao DOM global');
+      },
+      lastKnownAudioSrc: null,
+      transcribeBlobWithWhisper: async (blob, mimeType) => {
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        assert.strictEqual(buffer.toString(), 'audio-from-store');
+        assert.strictEqual(mimeType, 'audio/ogg');
+        return 'transcribed-text';
+      }
+    };
+
     const messageElement = {
       dataset: { id: 'message-data-url' },
       querySelectorAll: () => [],
@@ -194,54 +244,14 @@ update-timeout-handling-in-page-store-readiness-etx9o8
       vm.runInThisContext('typeof WhatsAppAIAssistant !== "undefined" ? WhatsAppAIAssistant : undefined');
     assert.ok(AssistantClass, 'Classe WhatsAppAIAssistant deve estar disponível');
 
-    // Cenário 1: readiness expira e DOM fornece o blob
-    const domBlob = new Blob(['audio-from-dom']);
-    let domLookupCount = 0;
+    const fallbackBlob = new Blob(['audio-from-dom-fallback']);
+    let fallbackUsed = false;
 
-    const assistantDomContext = {
+    const fallbackContext = {
       findPlayableAudioElementWithin: () => null,
-      ensureAudioReady: async () => {},
-      fetchBlobFromAudioElement: async () => {
-        throw new Error('Não deve buscar blob direto no DOM da mensagem');
+      ensureAudioReady: async () => {
+        throw new Error('Não deve preparar <audio> direto da mensagem');
       },
-      fetchBlobFromUrl: async () => {
-        throw new Error('Não deve reutilizar URL anterior');
-      },
-      getLastVoiceBlob: async () => {
-        domLookupCount += 1;
-        return { blob: domBlob, audioElement: { currentSrc: 'dom-src' } };
-      },
-      lastKnownAudioSrc: null,
-      transcribeBlobWithWhisper: async (blob, mimeType) => {
-        const buffer = Buffer.from(await blob.arrayBuffer());
-        assert.strictEqual(buffer.toString(), 'audio-from-dom');
-        assert.strictEqual(mimeType, 'audio/ogg');
-        return 'dom-transcribed';
-      }
-    };
-
-    const transcriptionDom = await AssistantClass.prototype.transcribeAudio.call(
-      assistantDomContext,
-      messageElement
-    );
-
-    assert.strictEqual(transcriptionDom, 'dom-transcribed');
-    assert.strictEqual(domLookupCount, 1, 'Deve buscar blob no DOM após timeout do Store');
-    assert.strictEqual(
-      window.__zapPageStoreReady === true,
-      false,
-      'Store não deve sinalizar readiness quando timeout ocorre'
-    );
-
-    window.__zapPageStoreReady = false;
-
-    // Cenário 2: DOM falha e fallback final via Store funciona após readiness
-    let storeResponses = 0;
-    let domFailures = 0;
-
-    const assistantStoreContext = {
-      findPlayableAudioElementWithin: () => null,
-      ensureAudioReady: async () => {},
       fetchBlobFromAudioElement: async () => {
         throw new Error('Não deve tentar buscar blob diretamente');
       },
@@ -249,39 +259,132 @@ update-timeout-handling-in-page-store-readiness-etx9o8
         throw new Error('Não deve tentar reutilizar URL anterior');
       },
       getLastVoiceBlob: async () => {
-        domFailures += 1;
-        messageHandlers.forEach((handler) => {
-          handler({ source: window, data: { type: 'WA_STORE_READY' } });
-        });
-        throw new Error('Áudio em mensagem: NAO ENCONTRADO');
+        fallbackUsed = true;
+        return {
+          blob: fallbackBlob,
+          audioElement: { currentSrc: 'blob:fallback-audio' }
+        };
       },
       lastKnownAudioSrc: null,
       transcribeBlobWithWhisper: async (blob, mimeType) => {
         const buffer = Buffer.from(await blob.arrayBuffer());
-        assert.strictEqual(buffer.toString(), 'audio-from-store');
+        assert.strictEqual(buffer.toString(), 'audio-from-dom-fallback');
         assert.strictEqual(mimeType, 'audio/ogg');
-        storeResponses += 1;
-        return 'store-transcribed';
+        return 'fallback-transcribed-text';
       }
     };
 
-    const transcriptionStore = await AssistantClass.prototype.transcribeAudio.call(
-      assistantStoreContext,
+    const fallbackTranscription = await AssistantClass.prototype.transcribeAudio.call(
+      fallbackContext,
       messageElement
     );
 
-    assert.strictEqual(storeResponses, 1, 'Transcrição deve usar blob retornado pelo Store');
-    assert.strictEqual(domFailures, 1, 'DOM deve falhar apenas uma vez antes do fallback final');
-    assert.strictEqual(transcriptionStore, 'store-transcribed');
+    assert.strictEqual(fallbackTranscription, 'fallback-transcribed-text');
+    assert.strictEqual(fallbackUsed, true, 'Deve recorrer ao último áudio disponível no DOM');
+    assert.strictEqual(storeRequestCount, 0, 'Não deve enviar requisição ao Store quando readiness expira');
 
-    // Garantir que listeners permanecem ativos até o fim
-    assert.ok(messageHandlers.size > 0, 'Listeners de mensagem devem permanecer ativos');
+    storeRequestCount = 0;
 
-    console.log('✔ Fluxos de fallback funcionam para timeout do Store e readiness tardio');
+    let failingDomAttempts = 0;
+
+    readinessTimedOutFlag = false;
+    const warningsBeforeFinalFallback = readinessTimeoutWarnings;
+
+    const failingDomContext = {
+      findPlayableAudioElementWithin: () => null,
+      ensureAudioReady: async () => {
+        throw new Error('Não deve preparar <audio> direto da mensagem');
+      },
+      fetchBlobFromAudioElement: async () => {
+        throw new Error('Não deve tentar buscar blob diretamente');
+      },
+      fetchBlobFromUrl: async () => {
+        throw new Error('Não deve tentar reutilizar URL anterior');
+      },
+      getLastVoiceBlob: async () => {
+        failingDomAttempts += 1;
+
+        await new Promise((resolve) => {
+          const checkTimeout = () => {
+            if (readinessTimedOutFlag) {
+              resolve();
+            } else {
+              setImmediate(checkTimeout);
+            }
+          };
+
+          checkTimeout();
+        });
+
+        setImmediate(() => {
+          messageHandlers.forEach((handler) => {
+            handler({ source: window, data: { type: 'WA_STORE_READY' } });
+          });
+        });
+
+        throw new Error('Falha simulada ao obter áudio do DOM');
+      },
+      lastKnownAudioSrc: 'previous-known-src',
+      transcribeBlobWithWhisper: async (blob, mimeType) => {
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        assert.strictEqual(buffer.toString(), 'audio-from-store');
+        assert.strictEqual(mimeType, 'audio/ogg');
+        return 'store-fallback-transcribed';
+      }
+    };
+
+    const storeFallbackTranscription = await AssistantClass.prototype.transcribeAudio.call(
+      failingDomContext,
+      messageElement
+    );
+
+    assert.strictEqual(storeFallbackTranscription, 'store-fallback-transcribed');
+    assert.strictEqual(failingDomAttempts, 1, 'Deve tentar recuperar áudio do DOM uma vez');
+    assert.strictEqual(
+      storeRequestCount,
+      1,
+      'Fallback final deve recorrer ao Store após readiness ser sinalizado'
+    );
+    assert.strictEqual(
+      failingDomContext.lastKnownAudioSrc,
+      'previous-known-src',
+      'lastKnownAudioSrc deve permanecer inalterado quando DOM falha'
+    );
+    assert.strictEqual(
+      readinessTimedOutFlag,
+      true,
+      'Timeout de readiness deve ocorrer antes do fallback final via Store'
+    );
+    assert.ok(
+      readinessTimeoutWarnings > warningsBeforeFinalFallback,
+      'Deve registrar aviso de timeout de readiness antes do fallback final via Store'
+    );
+
+    storeRequestCount = 0;
+
+    // Libera a promise de readiness do Store para o cenário principal
+    messageHandlers.forEach((handler) => {
+      handler({ source: window, data: { type: 'WA_STORE_READY' } });
+    });
+
+    const transcription = await AssistantClass.prototype.transcribeAudio.call(
+      assistantContext,
+      messageElement
+    );
+
+    assert.strictEqual(transcription, 'transcribed-text');
+    assert.strictEqual(storeRequestCount, 1, 'Deve enviar uma requisição ao Store quando readiness está OK');
+    assert.strictEqual(
+      messageHandlers.size > 0,
+      true,
+      'Listeners de mensagem devem permanecer registrados até conclusão'
+    );
+
+    console.log('✔ Fallback via DOM funciona quando WA_STORE_READY não ocorre');
+    console.log('✔ Fallback para Store funciona quando não há <audio> no DOM');
   } finally {
-    global.setTimeout = originalSetTimeout;
-    global.clearTimeout = originalClearTimeout;
-
+    restoreTimers();
+    console.warn = originalWarn;
   }
 }
 
