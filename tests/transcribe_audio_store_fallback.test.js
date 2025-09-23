@@ -52,6 +52,23 @@ async function run() {
     global.clearTimeout = originalClearTimeout;
   };
 
+  const originalWarn = console.warn;
+  let readinessTimeoutWarnings = 0;
+  let readinessTimedOutFlag = false;
+
+  console.warn = (...args) => {
+    if (
+      args.length > 0 &&
+      typeof args[0] === 'string' &&
+      args[0].includes('Store do WhatsApp não sinalizou readiness no tempo esperado')
+    ) {
+      readinessTimedOutFlag = true;
+      readinessTimeoutWarnings += 1;
+    }
+
+    return originalWarn.apply(console, args);
+  };
+
   try {
     const messageHandlers = new Set();
     const storeBlob = new Blob(['audio-from-store']);
@@ -270,6 +287,9 @@ async function run() {
 
     let failingDomAttempts = 0;
 
+    readinessTimedOutFlag = false;
+    const warningsBeforeFinalFallback = readinessTimeoutWarnings;
+
     const failingDomContext = {
       findPlayableAudioElementWithin: () => null,
       ensureAudioReady: async () => {
@@ -283,11 +303,25 @@ async function run() {
       },
       getLastVoiceBlob: async () => {
         failingDomAttempts += 1;
+
+        await new Promise((resolve) => {
+          const checkTimeout = () => {
+            if (readinessTimedOutFlag) {
+              resolve();
+            } else {
+              setImmediate(checkTimeout);
+            }
+          };
+
+          checkTimeout();
+        });
+
         setImmediate(() => {
           messageHandlers.forEach((handler) => {
             handler({ source: window, data: { type: 'WA_STORE_READY' } });
           });
         });
+
         throw new Error('Falha simulada ao obter áudio do DOM');
       },
       lastKnownAudioSrc: 'previous-known-src',
@@ -316,6 +350,15 @@ async function run() {
       'previous-known-src',
       'lastKnownAudioSrc deve permanecer inalterado quando DOM falha'
     );
+    assert.strictEqual(
+      readinessTimedOutFlag,
+      true,
+      'Timeout de readiness deve ocorrer antes do fallback final via Store'
+    );
+    assert.ok(
+      readinessTimeoutWarnings > warningsBeforeFinalFallback,
+      'Deve registrar aviso de timeout de readiness antes do fallback final via Store'
+    );
 
     storeRequestCount = 0;
 
@@ -341,6 +384,7 @@ async function run() {
     console.log('✔ Fallback para Store funciona quando não há <audio> no DOM');
   } finally {
     restoreTimers();
+    console.warn = originalWarn;
   }
 }
 
