@@ -22,12 +22,21 @@ class PopupManager {
 
   async loadSettings() {
     try {
-      const result = await chrome.storage.sync.get(['apiKey', 'model', 'responseStyle']);
-      
-      if (result.apiKey) this.elements.apiKey.value = result.apiKey;
-      if (result.model) this.elements.model.value = result.model;
-      if (result.responseStyle) this.elements.responseStyle.value = result.responseStyle;
-      
+      const [syncSettings, localSettings] = await Promise.all([
+        chrome.storage.sync.get(['model', 'responseStyle']),
+        chrome.storage.local.get('OPENAI_KEY')
+      ]);
+
+      if (localSettings.OPENAI_KEY) {
+        this.elements.apiKey.value = localSettings.OPENAI_KEY;
+      }
+      if (syncSettings.model) {
+        this.elements.model.value = syncSettings.model;
+      }
+      if (syncSettings.responseStyle) {
+        this.elements.responseStyle.value = syncSettings.responseStyle;
+      }
+
     } catch (error) {
       this.showStatus('Erro ao carregar configurações', 'error');
     }
@@ -57,11 +66,14 @@ class PopupManager {
 
   async autoSave() {
     try {
-      await chrome.storage.sync.set({
-        apiKey: this.elements.apiKey.value.trim(),
-        model: this.elements.model.value,
-        responseStyle: this.elements.responseStyle.value.trim()
-      });
+      const apiKey = this.elements.apiKey.value.trim();
+      await Promise.all([
+        chrome.storage.local.set({ OPENAI_KEY: apiKey }),
+        chrome.storage.sync.set({
+          model: this.elements.model.value,
+          responseStyle: this.elements.responseStyle.value.trim()
+        })
+      ]);
     } catch (error) {
       console.error('Erro no auto-save:', error);
     }
@@ -84,15 +96,17 @@ class PopupManager {
 
     try {
       this.elements.saveButton.classList.add('loading');
-      
-      await chrome.storage.sync.set({
-        apiKey,
-        model,
-        responseStyle
-      });
+
+      await Promise.all([
+        chrome.storage.local.set({ OPENAI_KEY: apiKey }),
+        chrome.storage.sync.set({
+          model,
+          responseStyle
+        })
+      ]);
 
       this.showStatus('Configurações salvas com sucesso!', 'success');
-      
+
       // Notifica os content scripts sobre as mudanças
       this.notifyContentScripts();
       
