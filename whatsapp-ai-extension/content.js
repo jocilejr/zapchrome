@@ -939,21 +939,18 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       if (!audioBlob) {
         console.log('[WhatsApp AI] Buscando último áudio disponível no DOM');
-
-        let lastAudio = null;
+update-timeout-handling-in-page-store-readiness-etx9o8
         try {
-          lastAudio = await this.getLastVoiceBlob();
-        } catch (error) {
-          console.warn('[WhatsApp AI] Falha ao obter último áudio do DOM', error);
-        }
-
-        if (lastAudio && lastAudio.blob) {
-          audioBlob = lastAudio.blob;
-          if (lastAudio.audioElement) {
+          const lastAudio = await this.getLastVoiceBlob();
+          if (lastAudio && lastAudio.blob) {
+            audioBlob = lastAudio.blob;
             audioElement = lastAudio.audioElement;
             this.lastKnownAudioSrc =
-              audioElement.currentSrc || audioElement.src || this.lastKnownAudioSrc;
+              audioElement?.currentSrc || audioElement?.src || this.lastKnownAudioSrc;
           }
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao recuperar áudio via DOM', error);
+
         }
       }
 
