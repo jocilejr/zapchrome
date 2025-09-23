@@ -15,24 +15,30 @@ async function debugTranscricaoCompleto() {
   console.log('✅ Extensão carregada');
   
   // 2. Verificar API Key
-  const apiKey = window.whatsappAI.settings.apiKey;
-  if (!apiKey) {
+  const assistant = window.whatsappAI;
+  const hasApiKey = typeof assistant.ensureApiKeyConfigured === 'function'
+    ? await assistant.ensureApiKeyConfigured()
+    : !!assistant.apiKeyConfigured;
+
+  if (!hasApiKey) {
     console.error('❌ API Key não configurada');
     return;
   }
-  console.log('✅ API Key configurada:', apiKey.substring(0, 7) + '...');
-  
-  // 3. Testar API Key com OpenAI
+  console.log('✅ API Key configurada');
+
+  // 3. Testar API Key com OpenAI via background
   console.log('\n🔑 TESTANDO API KEY...');
   try {
-    const testResponse = await fetch('https://api.openai.com/v1/models', {
-      headers: { 'Authorization': `Bearer ${apiKey}` }
+    const probe = await chrome.runtime.sendMessage({
+      type: 'GENERATE_COMPLETION',
+      prompt: 'Responda apenas "OK".',
+      model: assistant.settings?.model || 'gpt-4o'
     });
-    
-    if (testResponse.ok) {
+
+    if (probe?.ok) {
       console.log('✅ API Key válida');
     } else {
-      console.error('❌ API Key inválida:', testResponse.status);
+      console.error('❌ API Key inválida:', probe?.error || 'Erro desconhecido');
       return;
     }
   } catch (error) {
@@ -72,8 +78,8 @@ async function debugTranscricaoCompleto() {
         
         // Testar com Whisper (apenas o primeiro áudio para não gastar créditos)
         if (i === 0) {
-          console.log('\n🎤 TESTANDO WHISPER API...');
-          await testarWhisperComBlob(blob, apiKey);
+          console.log('\n🎤 TESTANDO WHISPER VIA BACKGROUND...');
+          await testarWhisperComBlob(blob);
         }
         
       } catch (error) {
@@ -184,27 +190,19 @@ async function debugTranscricaoCompleto() {
   }
 }
 
-async function testarWhisperComBlob(blob, apiKey) {
+async function testarWhisperComBlob(blob) {
   try {
-    const formData = new FormData();
-    formData.append('file', blob, 'test-audio.ogg');
-    formData.append('model', 'whisper-1');
-    formData.append('language', 'pt');
-    
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: formData
+    const arrayBuffer = await blob.arrayBuffer();
+    const response = await chrome.runtime.sendMessage({
+      type: 'TRANSCRIBIR_AUDIO',
+      arrayBuffer,
+      mime: blob.type || 'audio/ogg'
     });
-    
-    if (response.ok) {
-      const result = await response.json();
-      console.log(`✅ Whisper OK: "${result.text}"`);
+
+    if (response?.ok) {
+      console.log(`✅ Whisper OK: "${response.text}"`);
     } else {
-      const error = await response.text();
-      console.error(`❌ Whisper ERRO (${response.status}): ${error}`);
+      console.error(`❌ Whisper ERRO: ${response?.error || 'Erro desconhecido'}`);
     }
   } catch (error) {
     console.error('❌ Erro na requisição Whisper:', error);

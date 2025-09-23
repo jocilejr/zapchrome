@@ -1,17 +1,75 @@
+if (!window.__uiUpdate) {
+  window.__uiUpdate = (...args) => console.log('[UI update]', ...args);
+}
+
+const update = (...args) => window.__uiUpdate(...args);
+
+// Aguarda um tempo (promessa)
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Força o WhatsApp a criar o <audio> clicando no play da mensagem
+async function ensureAudioTagLoaded(messageElement) {
+  if (!messageElement) {
+    return;
+  }
+
+  const playButton = messageElement.querySelector(
+    '[data-testid="audio-play-button"], [data-testid="ptt-play-button"], [data-icon="audio-play"], button[aria-label*="Reproduzir"], button[aria-label*="Play"]'
+  );
+
+  if (playButton) {
+    try {
+      playButton.click();
+    } catch (error) {
+      console.warn('[WhatsApp AI] Falha ao clicar no botão de play', error);
+    }
+
+    await sleep(350);
+
+    const maybeAudio = messageElement.querySelector('audio');
+    if (maybeAudio && !maybeAudio.paused) {
+      try {
+        maybeAudio.pause();
+      } catch (pauseError) {
+        console.warn('[WhatsApp AI] Falha ao pausar áudio forçado', pauseError);
+      }
+    }
+  }
+}
+
+// Pega o último <audio> “real” carregado no DOM (fallback global)
+function getLastGlobalAudioUrl() {
+  const audios = Array.from(document.querySelectorAll('audio[src^="blob:"]'));
+  if (audios.length === 0) {
+    return null;
+  }
+
+  const last = audios[audios.length - 1];
+  return last?.src || null;
+}
+
 // WhatsApp AI Assistant Content Script - Versão Limpa
 class WhatsAppAIAssistant {
   constructor() {
     this.isActive = false;
     this.button = null;
     this.settings = {
-      apiKey: '',
       model: 'gpt-4o',
       responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa'
     };
+    this.apiKeyConfigured = false;
     this.lastKnownAudioSrc = null;
-    this.pageBridgeRequests = new Map();
-    this.boundHandlePageBridgeMessage = this.handlePageBridgeMessage.bind(this);
-    this._pageBridgeListenerAttached = false;
+    this.pageStoreListenerAttached = false;
+    this.pageStoreScriptInjected = false;
+    this.pageStoreBridgeReady = false;
+    this.pageStoreBridgePromise = null;
+    this.pageStoreBridgeResolve = null;
+    this.pageStoreBridgeReject = null;
+    this.pendingStoreRequests = new Map();
+    this.handlePageStoreMessage = this.handlePageStoreMessage.bind(this);
+    this.setupPageStoreMessaging();
     console.log('[WhatsApp AI] Construtor iniciado');
     this.init();
   }
@@ -19,11 +77,14 @@ class WhatsAppAIAssistant {
   async init() {
     console.log('[WhatsApp AI] Inicializando...');
     await this.loadSettings();
-    this.setupPageStoreBridge().catch(error => {
-      console.warn('[WhatsApp AI] Falha ao iniciar bridge do Store', error);
-    });
     this.createFloatingButton();
     this.observeConversationChanges();
+
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type === 'SETTINGS_UPDATED') {
+        this.loadSettings();
+      }
+    });
 
     // Expor instância globalmente para debug
     window.whatsappAI = this;
@@ -32,67 +93,189 @@ class WhatsAppAIAssistant {
 
   async loadSettings() {
     try {
-      const result = await chrome.storage.sync.get(['apiKey', 'model', 'responseStyle']);
+      const result = await chrome.storage.sync.get(['model', 'responseStyle']);
       this.settings = {
-        apiKey: result.apiKey || '',
         model: result.model || 'gpt-4o',
         responseStyle: result.responseStyle || 'Responda de forma natural e contextual, mantendo o tom da conversa'
       };
+
+      await this.ensureApiKeyConfigured();
     } catch (error) {
       console.log('Erro ao carregar configurações:', error);
     }
   }
 
-  setupPageStoreBridge() {
-    if (!this._pageBridgeListenerAttached) {
-      window.addEventListener('message', this.boundHandlePageBridgeMessage);
-      this._pageBridgeListenerAttached = true;
+  async ensureApiKeyConfigured() {
+    try {
+      const response = await chrome.runtime.sendMessage({ type: 'CHECK_API_KEY' });
+      this.apiKeyConfigured = !!response?.configured;
+    } catch (error) {
+      console.warn('[WhatsApp AI] Não foi possível verificar estado da API Key', error);
+      this.apiKeyConfigured = false;
     }
 
-    if (!this._pageStoreBridgePromise) {
-      this._pageStoreBridgePromise = new Promise((resolve, reject) => {
-        try {
-          const script = document.createElement('script');
-          script.src = chrome.runtime.getURL('page-store.js');
-          script.async = false;
-          script.onload = () => {
-            script.remove();
-            resolve();
-          };
-          script.onerror = (error) => {
-            script.remove();
-            reject(new Error('Falha ao carregar helper do Store do WhatsApp'));
-          };
-          (document.head || document.documentElement).appendChild(script);
-        } catch (error) {
-          reject(error);
-        }
-      }).catch(error => {
-        console.warn('[WhatsApp AI] Erro ao injetar bridge do Store', error);
-        if (this._pageBridgeListenerAttached) {
-          window.removeEventListener('message', this.boundHandlePageBridgeMessage);
-          this._pageBridgeListenerAttached = false;
-        }
-        this._pageStoreBridgePromise = null;
-        throw error;
-      });
-    }
-
-    return this._pageStoreBridgePromise;
+    return this.apiKeyConfigured;
   }
 
-  async requestPageStoreAction(action, payload = {}, timeoutMs = 8000) {
-    await this.setupPageStoreBridge();
+  setupPageStoreMessaging() {
+    if (this.pageStoreListenerAttached) {
+      return;
+    }
 
-    return new Promise((resolve, reject) => {
-      const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    window.addEventListener('message', this.handlePageStoreMessage, false);
+    this.pageStoreListenerAttached = true;
+  }
 
-      const timeout = setTimeout(() => {
-        this.pageBridgeRequests.delete(requestId);
-        reject(new Error('Timeout ao comunicar com helper do Store'));
+  handlePageStoreMessage(event) {
+    if (!event || event.source !== window) {
+      return;
+    }
+
+    const data = event.data;
+    if (!data || typeof data !== 'object') {
+      return;
+    }
+
+    if (data.type === 'WA_STORE_READY') {
+      this.pageStoreBridgeReady = true;
+      if (this.pageStoreBridgeResolve) {
+        this.pageStoreBridgeResolve(true);
+        this.pageStoreBridgeResolve = null;
+        this.pageStoreBridgeReject = null;
+      }
+      return;
+    }
+
+    if (data.type === 'WA_STORE_RESPONSE') {
+      const requestId = data.requestId;
+      if (!requestId) {
+        return;
+      }
+
+      const pending = this.pendingStoreRequests.get(requestId);
+      if (!pending) {
+        return;
+      }
+
+      this.pendingStoreRequests.delete(requestId);
+
+      if (pending.timer) {
+        clearTimeout(pending.timer);
+      }
+
+      if (data.success) {
+        pending.resolve(data);
+      } else {
+        pending.reject(new Error(data.error || 'Ação do Store falhou'));
+      }
+    }
+  }
+
+  injectPageStoreScript() {
+    if (this.pageStoreScriptInjected) {
+      return;
+    }
+
+    const existing = document.querySelector('script[data-whatsapp-ai-page-store]');
+    if (existing) {
+      this.pageStoreScriptInjected = true;
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = chrome.runtime.getURL('page-store.js');
+    script.async = true;
+    script.dataset.whatsappAiPageStore = 'true';
+    script.addEventListener('error', (error) => {
+      console.error('[WhatsApp AI] Falha ao carregar helper do Store', error);
+      if (this.pageStoreBridgeReject) {
+        this.pageStoreBridgeReject(new Error('Falha ao carregar helper do Store'));
+      }
+    });
+
+    const parent = document.head || document.documentElement || document.body;
+    parent.appendChild(script);
+    this.pageStoreScriptInjected = true;
+  }
+
+  async ensurePageStoreBridge(timeoutMs = 8000) {
+    if (this.pageStoreBridgeReady) {
+      return true;
+    }
+
+    this.setupPageStoreMessaging();
+    this.injectPageStoreScript();
+
+    if (this.pageStoreBridgePromise) {
+      return this.pageStoreBridgePromise;
+    }
+
+    this.pageStoreBridgePromise = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pageStoreBridgePromise = null;
+        this.pageStoreBridgeResolve = null;
+        this.pageStoreBridgeReject = null;
+        reject(new Error('Timeout aguardando bridge do Store'));
       }, timeoutMs);
 
-      this.pageBridgeRequests.set(requestId, { resolve, reject, timeout });
+      this.pageStoreBridgeResolve = () => {
+        clearTimeout(timer);
+        this.pageStoreBridgePromise = null;
+        this.pageStoreBridgeResolve = null;
+        this.pageStoreBridgeReject = null;
+        this.pageStoreBridgeReady = true;
+        resolve(true);
+      };
+
+      this.pageStoreBridgeReject = (error) => {
+        clearTimeout(timer);
+        this.pageStoreBridgePromise = null;
+        this.pageStoreBridgeResolve = null;
+        this.pageStoreBridgeReject = null;
+        reject(error);
+      };
+    });
+
+    return this.pageStoreBridgePromise;
+  }
+
+  async ensureWhatsAppStore(timeoutMs = 12000) {
+    try {
+      await this.ensurePageStoreBridge(timeoutMs);
+    } catch (error) {
+      console.warn('[WhatsApp AI] Não foi possível iniciar bridge do Store', error);
+      return false;
+    }
+
+    try {
+      await this.requestPageStoreAction('ENSURE_STORE', {}, timeoutMs);
+      return true;
+    } catch (error) {
+      console.warn('[WhatsApp AI] Falha ao garantir Store do WhatsApp', error);
+      return false;
+    }
+  }
+
+  async requestPageStoreAction(action, payload = {}, timeoutMs = 12000) {
+    if (!action) {
+      throw new Error('Ação inválida');
+    }
+
+    await this.ensurePageStoreBridge(timeoutMs);
+
+    const requestId = `wa_store_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingStoreRequests.delete(requestId);
+        reject(new Error(`Timeout na ação ${action}`));
+      }, timeoutMs);
+
+      this.pendingStoreRequests.set(requestId, {
+        resolve,
+        reject,
+        timer
+      });
 
       window.postMessage(
         {
@@ -106,35 +289,27 @@ class WhatsAppAIAssistant {
     });
   }
 
-  handlePageBridgeMessage(event) {
-    if (event.source !== window || !event.data) {
-      return;
+  extractMessageIdFromElement(element) {
+    let current = element;
+    while (current && current !== document.body) {
+      if (current.dataset?.id) {
+        return current.dataset.id;
+      }
+
+      const dataId = current.getAttribute?.('data-id');
+      if (dataId) {
+        return dataId;
+      }
+
+      const ariaOwns = current.getAttribute?.('aria-owns');
+      if (ariaOwns) {
+        return ariaOwns;
+      }
+
+      current = current.parentElement;
     }
 
-    const data = event.data;
-
-    if (data.type === 'WA_STORE_READY') {
-      console.log('[WhatsApp AI] Bridge do Store pronta');
-      return;
-    }
-
-    if (data.type !== 'WA_STORE_RESPONSE' || !data.requestId) {
-      return;
-    }
-
-    const pending = this.pageBridgeRequests.get(data.requestId);
-    if (!pending) {
-      return;
-    }
-
-    clearTimeout(pending.timeout);
-    this.pageBridgeRequests.delete(data.requestId);
-
-    if (data.success) {
-      pending.resolve({ blob: data.blob, metadata: data.metadata });
-    } else {
-      pending.reject(new Error(data.error || 'Falha desconhecida no helper do Store'));
-    }
+    return null;
   }
 
   observeConversationChanges() {
@@ -254,7 +429,8 @@ class WhatsAppAIAssistant {
   }
 
   async generateResponse() {
-    if (!this.settings.apiKey) {
+    const hasApiKey = await this.ensureApiKeyConfigured();
+    if (!hasApiKey) {
       this.showNotification('⚠️ Configure sua API Key da OpenAI primeiro!', 'error');
       return;
     }
@@ -514,51 +690,6 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return messages;
   }
 
-  getMessageIdFromElement(messageElement) {
-    if (!messageElement) return null;
-
-    const directId = messageElement.dataset?.id || messageElement.getAttribute?.('data-id');
-    if (directId) return directId;
-
-    const nestedWithId = messageElement.querySelector?.('[data-id]');
-    if (nestedWithId) {
-      return nestedWithId.dataset?.id || nestedWithId.getAttribute('data-id');
-    }
-
-    const ariaOwns = messageElement.getAttribute?.('aria-owns');
-    if (ariaOwns) return ariaOwns;
-
-    return null;
-  }
-
-  async ensureWhatsAppStore() {
-    try {
-      await this.requestPageStoreAction('ENSURE_STORE', {}, 5000);
-      return true;
-    } catch (error) {
-      console.warn('[WhatsApp AI] Não foi possível inicializar helper do Store', error);
-      return false;
-    }
-  }
-
-  async getWhatsAppMessageById(messageId) {
-    if (!messageId) {
-      return null;
-    }
-
-    const isReady = await this.ensureWhatsAppStore();
-    if (!isReady) {
-      return null;
-    }
-
-    try {
-      return await this.requestPageStoreAction('GET_AUDIO_BLOB', { messageId }, 12000);
-    } catch (error) {
-      console.warn('[WhatsApp AI] Não foi possível obter mídia via helper do Store', error);
-      return null;
-    }
-  }
-
   isBlobLike(value) {
     if (!value) {
       return false;
@@ -576,289 +707,162 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     );
   }
 
-  normalizeHelperBlob(candidate, fallbackMimeType = 'audio/ogg') {
-    if (!candidate) {
+  isAudioReady(audioElement) {
+    if (!audioElement) {
+      return false;
+    }
+
+    const duration = Number.isFinite(audioElement.duration) ? audioElement.duration : 0;
+    const readyState = Number.isFinite(audioElement.readyState) ? audioElement.readyState : 0;
+    return Boolean(audioElement.src) && (duration > 0 || readyState >= 2);
+  }
+
+  async ensureAudioReady(audioElement, timeoutMs = 3000) {
+    if (!audioElement) {
+      return;
+    }
+
+    if (this.isAudioReady(audioElement)) {
+      return;
+    }
+
+    await new Promise((resolve) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        audioElement.removeEventListener('loadedmetadata', onReady);
+        audioElement.removeEventListener('loadeddata', onReady);
+        audioElement.removeEventListener('canplay', onReady);
+        audioElement.removeEventListener('canplaythrough', onReady);
+      };
+
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve();
+      }, timeoutMs);
+
+      audioElement.addEventListener('loadedmetadata', onReady, { once: true });
+      audioElement.addEventListener('loadeddata', onReady, { once: true });
+      audioElement.addEventListener('canplay', onReady, { once: true });
+      audioElement.addEventListener('canplaythrough', onReady, { once: true });
+    });
+  }
+
+  async fetchBlobFromAudioElement(audioElement) {
+    if (!audioElement) {
       return null;
     }
 
-    if (this.isBlobLike(candidate)) {
+    await this.ensureAudioReady(audioElement);
+
+    const src = audioElement.currentSrc || audioElement.src;
+    if (!src) {
+      return null;
+    }
+
+    const response = await fetch(src, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error(`Falha ao baixar áudio (${response.status})`);
+    }
+
+    return await response.blob();
+  }
+
+  async fetchBlobFromUrl(url) {
+    if (!url) {
+      return null;
+    }
+
+    const response = await fetch(url, { credentials: 'include' });
+    if (!response.ok) {
+      throw new Error(`Falha ao baixar áudio (${response.status})`);
+    }
+
+    return await response.blob();
+  }
+
+  async normalizeHelperBlob(helperResponse) {
+    if (!helperResponse) {
+      return null;
+    }
+
+    const metadata = helperResponse.metadata ? { ...helperResponse.metadata } : {};
+    let blobCandidate = helperResponse.blob;
+
+    const unwrap = (candidate) => {
+      if (this.isBlobLike(candidate)) {
+        return candidate;
+      }
+
+      if (candidate?.blob && this.isBlobLike(candidate.blob)) {
+        return candidate.blob;
+      }
+
+      if (candidate?._blob && this.isBlobLike(candidate._blob)) {
+        return candidate._blob;
+      }
+
+      if (candidate?.data && this.isBlobLike(candidate.data)) {
+        return candidate.data;
+      }
+
       return candidate;
-    }
+    };
 
-    if (candidate.blob && this.isBlobLike(candidate.blob)) {
-      return candidate.blob;
-    }
+    blobCandidate = unwrap(blobCandidate);
 
-    if (candidate.buffer instanceof ArrayBuffer) {
-      return new Blob([candidate.buffer], { type: fallbackMimeType });
-    }
-
-    if (candidate instanceof ArrayBuffer) {
-      return new Blob([candidate], { type: fallbackMimeType });
-    }
-
-    if (ArrayBuffer.isView(candidate)) {
-      return new Blob([candidate.buffer], { type: fallbackMimeType });
-    }
-
-    try {
-      return new Blob([candidate], { type: fallbackMimeType });
-    } catch (error) {
-      console.warn('[WhatsApp AI] Não foi possível normalizar blob do helper', error);
-      return null;
-    }
-  }
-
-  async transcribeAudio(messageElement) {
-    console.log('[WhatsApp AI] === INICIANDO TRANSCRIÇÃO DE ÁUDIO ===');
-
-    try {
-      const messageId = this.getMessageIdFromElement(messageElement);
-      if (messageId) {
-        console.log(`[WhatsApp AI] Solicitando mídia via helper para mensagem ${messageId}`);
+    if (blobCandidate && typeof blobCandidate === 'string') {
+      const dataUrlMatch = /^data:([^;]+);base64,(.+)$/i.exec(blobCandidate);
+      if (dataUrlMatch) {
         try {
-          const helperResponse = await this.getWhatsAppMessageById(messageId);
-          const helperBlob = this.normalizeHelperBlob(
-            helperResponse?.blob,
-            helperResponse?.metadata?.mimeType
-          );
-
-          if (helperBlob) {
-            console.log('[WhatsApp AI] Áudio obtido via helper do Store');
-            const metadata = helperResponse?.metadata || {};
-            const mimeType = helperBlob.type || metadata.mimeType || 'audio/ogg';
-            const fileName = metadata.fileName || 'whatsapp-audio.ogg';
-
-            return await this.processAudioBlob(helperBlob, {
-              fileName,
-              mimeType
-            });
-          }
-        } catch (storeError) {
-          console.warn('[WhatsApp AI] Falha ao obter mídia via helper', storeError);
-          this.showNotification('⚠️ Não foi possível acessar o áudio internamente. Tentando métodos alternativos...', 'warning');
+          const mimeType = dataUrlMatch[1] || metadata.mimeType || 'audio/ogg';
+          const binary = atob(dataUrlMatch[2]);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          blobCandidate = new Blob([bytes], { type: mimeType });
+          metadata.mimeType = mimeType;
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao decodificar base64 do helper', error);
+          return null;
+        }
+      } else if (/^blob:/.test(blobCandidate) || /^https?:/.test(blobCandidate)) {
+        metadata.blobUrl = metadata.blobUrl || blobCandidate;
+        blobCandidate = await this.fetchBlobFromUrl(blobCandidate);
+      } else {
+        try {
+          const binary = atob(blobCandidate);
+          const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+          blobCandidate = new Blob([bytes], { type: metadata.mimeType || 'audio/ogg' });
+        } catch (error) {
+          console.warn('[WhatsApp AI] String de blob desconhecida recebida do helper', error);
+          return null;
         }
       }
-
-      // Método 1: Buscar elemento audio diretamente na mensagem
-      let audioElement = messageElement.querySelector('audio');
-      console.log(`[WhatsApp AI] Áudio na mensagem: ${audioElement ? 'ENCONTRADO' : 'NÃO ENCONTRADO'}`);
-
-update-audio-processing-functions-yqj8cy
-      const directAudioSrc = this.resolveAudioSource(audioElement);
-      if (directAudioSrc) {
-        console.log(`[WhatsApp AI] Usando áudio da mensagem: ${directAudioSrc.substring(0, 50)}...`);
-        this.lastKnownAudioSrc = directAudioSrc;
-        return await this.processAudioBlob(directAudioSrc);
-
-      }
-
-      // Método 2: Buscar na estrutura do WhatsApp sem reproduzir
-      const audioData = this.findAudioInMessage(messageElement);
-      if (audioData) {
-        console.log(`[WhatsApp AI] Áudio encontrado via estrutura: ${audioData.src.substring(0, 50)}...`);
-        this.lastKnownAudioSrc = audioData.src;
-        return await this.processAudioBlob(audioData.src);
-      }
-      
-      // Método 3: Buscar todos os blobs de áudio recentes
-      const recentAudio = this.findRecentAudioBlob();
-      if (recentAudio) {
-        console.log(`[WhatsApp AI] Usando áudio recente: ${recentAudio.substring(0, 50)}...`);
-        this.lastKnownAudioSrc = recentAudio;
-        return await this.processAudioBlob(recentAudio);
-      }
-      
-      // Método 4: Tentar extrair áudio sem reproduzir
-      const extractedAudio = await this.extractAudioWithoutPlay(messageElement);
-      if (extractedAudio) {
-        console.log('[WhatsApp AI] Áudio extraído sem reprodução');
-        this.lastKnownAudioSrc = extractedAudio;
-        return await this.processAudioBlob(extractedAudio);
-      }
-      
-      throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
-      
-    } catch (error) {
-      console.error('[WhatsApp AI] ERRO DETALHADO:', error);
-      throw new Error(`Erro na transcrição: ${error.message}`);
-    }
-  }
-
-  findAudioInMessage(messageElement) {
-    console.log('[WhatsApp AI] Procurando áudio na estrutura da mensagem...');
-
-    // Buscar em diferentes estruturas possíveis
-    const possibleContainers = [
-      messageElement,
-      messageElement.parentElement,
-      messageElement.closest('[data-id]'),
-      messageElement.querySelector('[data-testid*="audio"]'),
-      messageElement.querySelector('[class*="audio"]'),
-      messageElement.querySelector('[class*="ptt"]')
-    ].filter(Boolean);
-
-    for (const container of possibleContainers) {
-update-audio-processing-functions-yqj8cy
-
-      const directAudio = container.querySelector('audio');
-      const directSrc = this.resolveAudioSource(directAudio);
-      if (directAudio && directSrc) {
-        console.log('[WhatsApp AI] Áudio encontrado em container');
-        return { src: directSrc, element: directAudio };
-      }
-
-      // Procurar também por <source> fora do <audio>
-      const looseSource = container.querySelector('source[src], source[data-src]');
-      const looseSrc = this.resolveElementUrl(looseSource);
-      if (looseSource && looseSrc) {
-        console.log('[WhatsApp AI] Áudio encontrado via elemento <source> avulso');
-        return { src: looseSrc, element: looseSource };
-      }
-
-      // Procurar âncoras ou botões com href/data-ref apontando para mídia
-      const linkWithMedia = container.querySelector('a[href], button[data-ref], div[data-ref]');
-      const linkSrc = this.resolveElementUrl(linkWithMedia);
-      if (linkWithMedia && linkSrc) {
-        console.log('[WhatsApp AI] Áudio encontrado via atributo de mídia');
-        return { src: linkSrc, element: linkWithMedia };
-update-audio-processing-functions-yqj8cy
-
-      }
     }
 
-    return null;
-  }
+    if (blobCandidate && blobCandidate.buffer && blobCandidate.byteLength >= 0 && !this.isBlobLike(blobCandidate)) {
+      const type = metadata.mimeType || 'audio/ogg';
+      blobCandidate = new Blob([blobCandidate.buffer ? blobCandidate : new Uint8Array(blobCandidate)], { type });
+    }
 
-  findRecentAudioBlob() {
-    console.log('[WhatsApp AI] Buscando blobs de áudio recentes...');
-update-audio-processing-functions-yqj8cy
+    blobCandidate = unwrap(blobCandidate);
 
-
-    const audioElements = document.querySelectorAll('audio, source[src], source[data-src]');
-    const allAudios = Array.from(audioElements).map(element => ({
-      element,
-      src: element.tagName.toLowerCase() === 'audio'
-        ? this.resolveAudioSource(element)
-        : this.resolveElementUrl(element)
-    })).filter(item => !!item.src);
-    console.log(`[WhatsApp AI] Total de áudios encontrados: ${allAudios.length}`);
-
-update-audio-processing-functions-yqj8cy
-    if (allAudios.length === 0) {
-      if (this.lastKnownAudioSrc) {
-        console.log('[WhatsApp AI] Reutilizando último áudio conhecido global');
-        return this.lastKnownAudioSrc;
-      }
-
+    if (!this.isBlobLike(blobCandidate)) {
       return null;
     }
 
-
-    // Pegar o mais recente (último na lista)
-    const recentAudio = allAudios[allAudios.length - 1];
-    this.lastKnownAudioSrc = recentAudio.src;
-    return recentAudio.src;
-  }
-
-  async extractAudioWithoutPlay(messageElement) {
-    console.log('[WhatsApp AI] Tentando extrair áudio sem reprodução...');
-
-    // Procurar por elementos que podem conter referência ao áudio
-    const audioButtons = messageElement.querySelectorAll('[data-testid*="audio"], [data-icon*="audio"], button[aria-label*="áudio"], button[aria-label*="voice"], button[aria-label*="voz"]');
-
-    for (const button of audioButtons) {
-      // Verificar se há um elemento audio próximo
-      const nearbyAudio = button.parentElement?.querySelector('audio') ||
-                         button.closest('[class*="message"]')?.querySelector('audio');
-update-audio-processing-functions-yqj8cy
-
-
-      const nearbySrc = this.resolveAudioSource(nearbyAudio);
-      if (nearbyAudio && nearbySrc) {
-        console.log('[WhatsApp AI] Áudio encontrado próximo ao botão');
-        return nearbySrc;
-      }
-
-      const sourceElement = button.closest('[class*="message"]')?.querySelector('source[src], source[data-src]');
-      const sourceUrl = this.resolveElementUrl(sourceElement);
-      if (sourceElement && sourceUrl) {
-        console.log('[WhatsApp AI] Áudio encontrado via elemento <source> próximo ao botão');
-        return sourceUrl;
-      }
-
-      const referencedUrl = this.resolveElementUrl(button);
-      if (referencedUrl) {
-        console.log('[WhatsApp AI] Áudio encontrado em atributo do botão');
-        return referencedUrl;
-      }
+    if (!metadata.mimeType && blobCandidate.type) {
+      metadata.mimeType = blobCandidate.type;
     }
 
-    if (this.lastKnownAudioSrc) {
-      console.log('[WhatsApp AI] Reutilizando último áudio conhecido');
-      return this.lastKnownAudioSrc;
+    if (!metadata.blobUrl && (metadata.src || metadata.downloadUrl)) {
+      metadata.blobUrl = metadata.src || metadata.downloadUrl;
     }
 
-    return null;
-  }
-
-  resolveElementUrl(element) {
-    if (!element) {
-      return null;
-    }
-
-    const candidateValues = [];
-
-    if (typeof element.currentSrc === 'string' && element.currentSrc.trim()) {
-      candidateValues.push(element.currentSrc.trim());
-    }
-
-    if (typeof element.src === 'string' && element.src.trim()) {
-      candidateValues.push(element.src.trim());
-    }
-
-    const attributeNames = ['src', 'href', 'data-src', 'data-href', 'data-ref', 'data-url', 'data-media-url', 'data-mediakey'];
-    for (const attr of attributeNames) {
-      const attrValue = element.getAttribute?.(attr);
-      if (attrValue && attrValue.trim()) {
-        candidateValues.push(attrValue.trim());
-      }
-    }
-
-    const datasetKeys = ['ref', 'src', 'href', 'url', 'mediaUrl', 'mediaurl', 'mediaRef'];
-    for (const key of datasetKeys) {
-      const value = element.dataset?.[key];
-      if (value && value.trim()) {
-        candidateValues.push(value.trim());
-      }
-    }
-
-    const parentLink = element.closest?.('a[href], button[href]');
-    if (parentLink?.href) {
-      candidateValues.push(parentLink.href.trim());
-    }
-
-    for (const rawValue of candidateValues) {
-      const value = rawValue.trim();
-      if (!value) {
-        continue;
-      }
-
-update-audio-processing-functions-yqj8cy
-      try {
-        const absolute = new URL(value, window.location.href).toString();
-        if (absolute) {
-          return absolute;
-        }
-      } catch (error) {
-        console.warn('[WhatsApp AI] Não foi possível resolver URL relativa de mídia', error);
-      }
-
-      return value;
-
-    }
-
-    return null;
+    return { blob: blobCandidate, metadata };
   }
 
   resolveAudioSource(audioElement) {
@@ -866,151 +870,360 @@ update-audio-processing-functions-yqj8cy
       return null;
     }
 
-    const directUrl = this.resolveElementUrl(audioElement);
-    if (directUrl) {
-      return directUrl;
+    return audioElement.currentSrc || audioElement.src || null;
+  }
+
+  findAudioInMessage(messageElement) {
+    if (!messageElement) {
+      return null;
     }
 
-    const sourceElements = audioElement.querySelectorAll('source, a[href]');
-    for (const sourceElement of sourceElements) {
-      const resolved = this.resolveElementUrl(sourceElement);
-      if (resolved) {
-        return resolved;
-update-audio-processing-functions-yqj8cy
+    const link = messageElement.querySelector('a[href^="blob:"], a[href^="data:audio"], a[href*="whatsapp.net"]');
+    if (link?.href) {
+      return { src: link.href };
+    }
 
+    const source = messageElement.querySelector('audio source[src], video source[src]');
+    if (source?.src) {
+      return { src: source.src };
+    }
+
+    const container = messageElement.querySelector(
+      '[data-testid="audio-play-button"], [data-testid="ptt-play-button"], [data-icon="audio-play"], button[aria-label*="Reproduzir"], button[aria-label*="Play"]'
+    );
+    if (container) {
+      const hostMessage = container.closest('[data-testid="msg-container"], [data-id]');
+      const nestedAudio = hostMessage?.querySelector?.('audio') || container.querySelector('audio');
+      const src = this.resolveAudioSource(nestedAudio);
+      if (src) {
+        return { src };
       }
     }
 
     return null;
   }
 
-  async processAudioBlob(source, options = {}) {
-    const isUrlSource = typeof source === 'string';
-    console.log(`[WhatsApp AI] === PROCESSANDO FONTE DE ÁUDIO (${isUrlSource ? 'URL' : 'BLOB'}) ===`);
+  findRecentAudioBlob() {
+    if (this.lastKnownAudioSrc) {
+      return this.lastKnownAudioSrc;
+    }
+
+    const latest = this.findLatestAudioElement();
+    if (latest) {
+      return this.resolveAudioSource(latest);
+    }
+
+    return null;
+  }
+
+  async extractAudioWithoutPlay(messageElement) {
+    if (!messageElement) {
+      return null;
+    }
+
+    const dataAttr = messageElement.getAttribute('data-audio-src') || messageElement.dataset?.audioSrc;
+    if (dataAttr) {
+      return dataAttr;
+    }
+
+    const source = messageElement.querySelector('source[src], track[src]');
+    if (source?.src) {
+      return source.src;
+    }
+
+    const downloadable = messageElement.querySelector('a[href*=".opus"], a[href*=".ogg"], a[href*=".mp3"], a[href*=".m4a"], a[href*=".mp4"]');
+    if (downloadable?.href) {
+      return downloadable.href;
+    }
+
+    return null;
+  }
+
+  async processAudioBlob(source, mimeHint, metadata = {}) {
+    if (!source) {
+      return null;
+    }
+
+    let blob = null;
+
+    if (this.isBlobLike(source)) {
+      blob = source;
+    } else if (typeof source === 'string') {
+      blob = await this.fetchBlobFromUrl(source);
+    } else if (source && this.isBlobLike(source.blob)) {
+      blob = source.blob;
+      if (!mimeHint) {
+        mimeHint = source.blob.type;
+      }
+    }
+
+    if (!blob || !this.isBlobLike(blob)) {
+      throw new Error('Fonte de áudio inválida');
+    }
+
+    const mimeType = mimeHint || metadata?.mimeType || blob.type || 'audio/ogg';
+
+    update({ status: 'Enviando para o Whisper...' });
+    const transcription = await this.transcribeBlobWithWhisper(blob, mimeType);
+    update({ status: 'Transcrição concluída', transcript: transcription });
+    return transcription;
+  }
+
+  findPlayableAudioElementWithin(messageElement) {
+    if (!messageElement) {
+      return null;
+    }
+
+    const directAudios = Array.from(messageElement.querySelectorAll('audio')).reverse();
+    if (directAudios.length > 0) {
+      return directAudios[0];
+    }
+
+    const selectors = [
+      '[data-testid="audio-play-button"]',
+      '[data-testid="ptt-play-button"]',
+      '[data-icon="audio-play"]',
+      'button[aria-label*="Play"]',
+      'button[aria-label*="Reproduzir"]'
+    ];
+
+    for (const selector of selectors) {
+      const container = messageElement.querySelector(selector);
+      if (!container) {
+        continue;
+      }
+
+      const audioElement = container.querySelector('audio') || container.closest('[data-testid="msg-container"], [data-id]')?.querySelector('audio');
+      if (audioElement) {
+        return audioElement;
+      }
+    }
+
+    return null;
+  }
+
+  findLatestAudioElement() {
+    const candidates = Array.from(document.querySelectorAll('audio')).reverse();
+    for (const audio of candidates) {
+      if (!audio?.src) {
+        continue;
+      }
+
+      const rect = typeof audio.getBoundingClientRect === 'function' ? audio.getBoundingClientRect() : { width: 0, height: 0 };
+      const visible = audio.offsetParent !== null || (rect.width ?? 0) > 0 || (rect.height ?? 0) > 0;
+      if (!visible) {
+        continue;
+      }
+
+      return audio;
+    }
+
+    return null;
+  }
+
+  async waitForAudioElement(timeoutMs = 5000) {
+    let resolved = this.findLatestAudioElement();
+    if (resolved) {
+      return resolved;
+    }
+
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
+
+      const cleanup = () => {
+        clearTimeout(timer);
+        observer.disconnect();
+      };
+
+      const check = () => {
+        resolved = this.findLatestAudioElement();
+        if (resolved) {
+          cleanup();
+          resolve(resolved);
+        } else if (Date.now() > deadline) {
+          cleanup();
+          resolve(null);
+        }
+      };
+
+      const observer = new MutationObserver(() => {
+        check();
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true
+      });
+
+      const timer = setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, timeoutMs);
+
+      check();
+    });
+  }
+
+  async getLastVoiceBlob(timeoutMs = 5000) {
+    let audioElement = this.findLatestAudioElement();
+    if (!audioElement) {
+      audioElement = await this.waitForAudioElement(timeoutMs);
+    }
+
+    if (!audioElement) {
+      throw new Error('Áudio em mensagem: NAO ENCONTRADO');
+    }
+
+    await this.ensureAudioReady(audioElement, timeoutMs);
+    const blob = await this.fetchBlobFromAudioElement(audioElement);
+    return { blob, audioElement };
+  }
+
+  async transcribeAudio(messageElement) {
+    console.log('[WhatsApp AI] === INICIANDO TRANSCRIÇÃO DE ÁUDIO ===');
 
     try {
-      let audioBlob;
+      update({ status: 'Procurando áudio...' });
 
-      if (isUrlSource) {
-        const blobUrl = source;
-        console.log(`[WhatsApp AI] URL: ${blobUrl.substring(0, 50)}...`);
-        console.log('[WhatsApp AI] Fazendo fetch do blob...');
-        const response = await fetch(blobUrl, {
-          credentials: 'include'
-        });
+      const messageId = this.extractMessageIdFromElement(messageElement);
+      let helperResult = null;
+      let normalizedHelper = null;
 
-        if (!response.ok) {
-          throw new Error(`Erro HTTP ${response.status}: ${response.statusText}`);
+      let storeReady = false;
+      try {
+        storeReady = await this.ensureWhatsAppStore();
+      } catch (storeError) {
+        console.warn('[WhatsApp AI] Store indisponível para recuperar áudio', storeError);
+      }
+
+      if (storeReady) {
+        if (messageId) {
+          try {
+            helperResult = await this.requestPageStoreAction('GET_AUDIO_BLOB', { messageId }, 12000);
+          } catch (error) {
+            console.warn('[WhatsApp AI] Falha ao buscar blob pelo Store com messageId', messageId, error);
+          }
         }
 
-        audioBlob = await response.blob();
-      } else if (this.isBlobLike(source)) {
-        audioBlob = source;
-      } else {
-        throw new Error('Fonte de áudio inválida');
-      }
-
-      const blobType = audioBlob.type || options.mimeType || '';
-      console.log(`[WhatsApp AI] Blob obtido - Tamanho: ${audioBlob.size} bytes, Tipo: ${blobType || 'desconhecido'}`);
-
-      if (audioBlob.size === 0) {
-        throw new Error('Arquivo de áudio vazio');
-      }
-
-      let filename = options.fileName || 'audio.ogg';
-
-      if (!options.fileName) {
-        if (blobType.includes('webm')) {
-          filename = 'audio.webm';
-        } else if (blobType.includes('mp4')) {
-          filename = 'audio.mp4';
-        } else if (blobType.includes('mpeg') || blobType.includes('mp3')) {
-          filename = 'audio.mp3';
+        if (!helperResult?.blob) {
+          try {
+            helperResult = await this.requestPageStoreAction('GET_LAST_AUDIO_BLOB', {}, 12000);
+          } catch (error) {
+            console.warn('[WhatsApp AI] Falha ao obter último áudio via Store', error);
+          }
         }
       }
 
-      console.log(`[WhatsApp AI] Arquivo: ${filename}`);
-
-      const formData = new FormData();
-      formData.append('file', audioBlob, filename);
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'pt');
-      formData.append('response_format', 'json');
-      
-      console.log('[WhatsApp AI] Enviando para OpenAI Whisper...');
-      
-      // Fazer request para Whisper API
-      const whisperResponse = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.settings.apiKey}`
-        },
-        body: formData
-      });
-      
-      console.log(`[WhatsApp AI] Resposta Whisper: ${whisperResponse.status} ${whisperResponse.statusText}`);
-      
-      if (!whisperResponse.ok) {
-        const errorText = await whisperResponse.text();
-        console.error('[WhatsApp AI] Erro da API Whisper:', errorText);
-        
-        // Tratamento específico de erros
-        if (whisperResponse.status === 401) {
-          throw new Error('API Key inválida ou sem permissões para Whisper');
-        } else if (whisperResponse.status === 429) {
-          throw new Error('Limite de rate limit atingido - tente novamente em alguns minutos');
-        } else if (whisperResponse.status === 400) {
-          throw new Error('Formato de áudio não suportado pelo Whisper');
-        } else {
-          throw new Error(`Whisper API error: ${whisperResponse.status} - ${errorText}`);
+      if (helperResult?.blob) {
+        try {
+          normalizedHelper = await this.normalizeHelperBlob(helperResult);
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao normalizar blob recebido do helper', error);
         }
       }
-      
-      const result = await whisperResponse.json();
-      const transcription = result.text?.trim();
-      
-      if (!transcription || transcription.length === 0) {
-        throw new Error('Transcrição vazia retornada pela API');
+
+      if (normalizedHelper?.blob) {
+        const helperSrc =
+          normalizedHelper.metadata?.blobUrl ||
+          normalizedHelper.metadata?.src ||
+          normalizedHelper.metadata?.downloadUrl ||
+          null;
+
+        if (helperSrc) {
+          this.lastKnownAudioSrc = helperSrc;
+        }
+
+        return await this.processAudioBlob(
+          normalizedHelper.blob,
+          normalizedHelper.metadata?.mimeType,
+          normalizedHelper.metadata
+        );
       }
-      
-      console.log(`[WhatsApp AI] === TRANSCRIÇÃO CONCLUÍDA ===`);
-      console.log(`[WhatsApp AI] Texto: "${transcription}"`);
-      console.log(`[WhatsApp AI] Tamanho: ${transcription.length} caracteres`);
-      
-      return transcription;
-      
+
+      // === TENTA 1: <audio> direto na mensagem ===
+      let audioElement = messageElement?.querySelector?.('audio') || null;
+      if (!audioElement) {
+        await ensureAudioTagLoaded(messageElement);
+        audioElement = messageElement?.querySelector?.('audio') || null;
+      }
+
+      let src = this.resolveAudioSource(audioElement);
+      if (src) {
+        this.lastKnownAudioSrc = src;
+        return await this.processAudioBlob(src);
+      }
+
+      // === TENTA 2: procurar estruturas dentro da mensagem ===
+      const audioData = this.findAudioInMessage?.(messageElement);
+      if (audioData?.src) {
+        this.lastKnownAudioSrc = audioData.src;
+        return await this.processAudioBlob(audioData.src);
+      }
+
+      // === TENTA 3: blob recente (varredura da página) ===
+      let recent = this.findRecentAudioBlob?.();
+      if (!recent) {
+        await ensureAudioTagLoaded(messageElement);
+        recent = this.findRecentAudioBlob?.();
+      }
+      if (recent) {
+        this.lastKnownAudioSrc = recent;
+        return await this.processAudioBlob(recent);
+      }
+
+      // === TENTA 4: extração sem reproduzir (links/source próximos) ===
+      const extracted = await this.extractAudioWithoutPlay?.(messageElement);
+      if (extracted) {
+        this.lastKnownAudioSrc = extracted;
+        return await this.processAudioBlob(extracted);
+      }
+
+      // === ÚLTIMO RECURSO: pega o último <audio> global criado no DOM ===
+      const globalBlobUrl = getLastGlobalAudioUrl();
+      if (globalBlobUrl) {
+        this.lastKnownAudioSrc = globalBlobUrl;
+        return await this.processAudioBlob(globalBlobUrl);
+      }
+
+      throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
     } catch (error) {
-      console.error('[WhatsApp AI] Erro no processamento do blob:', error);
-      throw error;
+      console.error('[WhatsApp AI] ERRO DETALHADO:', error);
+      throw new Error(`Erro na transcrição: ${error.message}`);
     }
   }
 
-  async callOpenAI(prompt) {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.settings.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.settings.model,
-        messages: [
-          {
-            role: 'user',
-            content: prompt
-          }
-        ],
-        max_tokens: 150,
-        temperature: 0.7
-      })
-    });
-
-    if (!response.ok) {
-      throw new Error(`OpenAI API error: ${response.status}`);
+  async transcribeBlobWithWhisper(audioBlob, mimeType = 'audio/ogg') {
+    if (!this.isBlobLike(audioBlob)) {
+      throw new Error('Fonte de áudio inválida');
     }
 
-    const data = await response.json();
-    return data.choices[0]?.message?.content?.trim();
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const response = await chrome.runtime.sendMessage({
+      type: 'TRANSCRIBIR_AUDIO',
+      arrayBuffer,
+      mime: mimeType
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Falha na transcrição');
+    }
+
+    return response.text;
+  }
+
+  async callOpenAI(prompt) {
+    const response = await chrome.runtime.sendMessage({
+      type: 'GENERATE_COMPLETION',
+      prompt,
+      model: this.settings.model
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Falha na geração da resposta');
+    }
+
+    return response.text?.trim?.() ?? response.text;
   }
 
   insertResponse(text) {
