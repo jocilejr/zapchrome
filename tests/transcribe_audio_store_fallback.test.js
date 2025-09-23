@@ -290,7 +290,7 @@ async function run() {
         });
         throw new Error('Falha simulada ao obter áudio do DOM');
       },
-      lastKnownAudioSrc: null,
+      lastKnownAudioSrc: 'previous-known-src',
       transcribeBlobWithWhisper: async (blob, mimeType) => {
         const buffer = Buffer.from(await blob.arrayBuffer());
         assert.strictEqual(buffer.toString(), 'audio-from-store');
@@ -310,6 +310,11 @@ async function run() {
       storeRequestCount,
       1,
       'Fallback final deve recorrer ao Store após readiness ser sinalizado'
+    );
+    assert.strictEqual(
+      failingDomContext.lastKnownAudioSrc,
+      'previous-known-src',
+      'lastKnownAudioSrc deve permanecer inalterado quando DOM falha'
     );
 
     storeRequestCount = 0;
