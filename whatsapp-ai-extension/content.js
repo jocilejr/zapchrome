@@ -939,6 +939,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       if (!audioBlob) {
         console.log('[WhatsApp AI] Buscando último áudio disponível no DOM');
+update-timeout-handling-in-page-store-readiness-etx9o8
         try {
           const lastAudio = await this.getLastVoiceBlob();
           if (lastAudio && lastAudio.blob) {
@@ -949,6 +950,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
           }
         } catch (error) {
           console.warn('[WhatsApp AI] Falha ao recuperar áudio via DOM', error);
+
         }
       }
 

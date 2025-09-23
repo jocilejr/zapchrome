@@ -5,9 +5,11 @@ const vm = require('vm');
 const { Blob } = require('buffer');
 
 async function run() {
-  const messageHandlers = new Set();
-  const storeBlob = new Blob(['audio-from-store']);
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  const acceleratedTimeouts = new Set();
 
+update-timeout-handling-in-page-store-readiness-etx9o8
   const fakeTimeouts = new Map();
   let fakeTimeoutId = 1;
   const originalSetTimeout = global.setTimeout;
@@ -84,6 +86,7 @@ async function run() {
 
     const fakeScriptNodes = [];
 
+
     global.document = {
       readyState: 'loading',
       addEventListener: () => {},
@@ -131,6 +134,7 @@ async function run() {
       },
       body: { appendChild() {} }
     };
+update-timeout-handling-in-page-store-readiness-etx9o8
 
     global.chrome = {
       runtime: {
@@ -277,6 +281,7 @@ async function run() {
   } finally {
     global.setTimeout = originalSetTimeout;
     global.clearTimeout = originalClearTimeout;
+
   }
 }
 
