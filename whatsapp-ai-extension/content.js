@@ -9,6 +9,8 @@ const WA_STORE_RESPONSE = 'WA_STORE_RESPONSE';
 const WA_STORE_READY = 'WA_STORE_READY';
 
 const pendingStoreRequests = new Map();
+const STORE_READY_TIMEOUT_MS = 2000;
+const STORE_READY_TIMEOUT_CODE = 'WA_STORE_READY_TIMEOUT';
 
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {
@@ -56,18 +58,35 @@ const ensurePageStoreReady = (() => {
       return readyPromise;
     }
 
-    readyPromise = new Promise((resolve) => {
+    const promise = new Promise((resolve, reject) => {
+      let readinessTimeout = null;
+
+      const cleanup = () => {
+        window.removeEventListener('message', handleReady);
+        if (readinessTimeout) {
+          clearTimeout(readinessTimeout);
+          readinessTimeout = null;
+        }
+      };
+
       const handleReady = (event) => {
         if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
           return;
         }
 
         window.__zapPageStoreReady = true;
-        window.removeEventListener('message', handleReady);
+        cleanup();
         resolve(true);
       };
 
       window.addEventListener('message', handleReady);
+
+      readinessTimeout = setTimeout(() => {
+        cleanup();
+        const timeoutError = new Error('Timeout aguardando readiness do Store');
+        timeoutError.code = STORE_READY_TIMEOUT_CODE;
+        reject(timeoutError);
+      }, STORE_READY_TIMEOUT_MS);
 
       if (!scriptInjected) {
         scriptInjected = true;
@@ -96,6 +115,11 @@ const ensurePageStoreReady = (() => {
           console.warn('[WhatsApp AI] Falha ao injetar page-store.js', error);
         }
       }
+    });
+
+    readyPromise = promise.catch((error) => {
+      readyPromise = null;
+      throw error;
     });
 
     return readyPromise;
@@ -150,6 +174,11 @@ async function requestStoreBlob(messageId) {
   try {
     await ensurePageStoreReady();
   } catch (error) {
+    if (error && error.code === STORE_READY_TIMEOUT_CODE) {
+      console.warn('[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado');
+      return null;
+    }
+
     throw new Error(`Store do WhatsApp indisponível: ${error.message}`);
   }
 
