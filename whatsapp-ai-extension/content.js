@@ -14,11 +14,6 @@ const STORE_READY_TIMEOUT_CODE = 'WA_STORE_READY_TIMEOUT';
 const STORE_REQUEST_TIMEOUT_MS = 5000;
 const STORE_REQUEST_OVERALL_TIMEOUT_MS = 20000;
 
-const MAX_MEDIA_BYTES = 6 * 1024 * 1024;
-const MAX_MEDIA_PER_MESSAGE = 4;
-const MAX_TOTAL_MEDIA_ITEMS = 12;
-const MAX_MEDIA_DATA_URL_LENGTH = 12 * 1024 * 1024;
-
 const markPageStoreReady = () => {
   if (typeof window !== 'undefined') {
     window.__zapPageStoreReady = true;
@@ -497,10 +492,6 @@ class WhatsAppAIAssistant {
     };
     this.apiKeyConfigured = false;
     this.lastKnownAudioSrc = null;
-    this.maxMediaPerMessage = MAX_MEDIA_PER_MESSAGE;
-    this.maxTotalMediaItems = MAX_TOTAL_MEDIA_ITEMS;
-    this.maxMediaBytes = MAX_MEDIA_BYTES;
-    this.maxMediaDataUrlLength = MAX_MEDIA_DATA_URL_LENGTH;
     console.log('[WhatsApp AI] Construtor iniciado');
     this.init();
   }
@@ -673,13 +664,13 @@ class WhatsAppAIAssistant {
 
     this.button.classList.add('loading');
     this.showNotification('🎵 Analisando conversa e transcrevendo áudios...', 'info');
-
+    
     let audioCount = 0;
     let transcriptionErrors = [];
-
+    
     try {
       const messages = await this.getLastMessagesWithAudio();
-
+      
       if (messages.length === 0) {
         this.showNotification('⚠️ Nenhuma mensagem encontrada na conversa', 'error');
         return;
@@ -688,27 +679,33 @@ class WhatsAppAIAssistant {
       // Contar quantos áudios foram processados e erros
       audioCount = messages.filter(m => m.isAudio).length;
       transcriptionErrors = messages.filter(m => m.text.includes('[ÁUDIO - erro')).length;
-
+      
       console.log(`[WhatsApp AI] Processadas ${messages.length} mensagens (${audioCount} áudios, ${transcriptionErrors} erros)`);
 
-      const structuredMessages = this.buildMultimodalConversation(messages);
+      const conversationHistory = messages.map(msg => 
+        `${msg.sender}: ${msg.text}`
+      ).join('\n');
 
-      if (!structuredMessages || structuredMessages.length === 0) {
-        this.showNotification('⚠️ Não foi possível montar o contexto da conversa.', 'error');
-        return;
-      }
+      const prompt = `${this.settings.responseStyle}
 
-      console.log('[WhatsApp AI] Enviando contexto multimodal para OpenAI...', structuredMessages);
-      const response = await this.callOpenAI(structuredMessages);
+Você é um assistente que gera respostas para conversas no WhatsApp.
 
+Histórico da conversa:
+${conversationHistory}
+
+IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua explicações, contexto ou identificações como "Resposta:" ou similar. Apenas a resposta natural em português brasileiro:`;
+
+      console.log('[WhatsApp AI] Enviando prompt para OpenAI...');
+      const response = await this.callOpenAI(prompt);
+      
       if (response) {
         const cleanResponse = response
           .replace(/^(Resposta:|Response:|Resposta da IA:|AI:|IA:)/i, '')
           .replace(/^[\s\-\:]+/, '')
           .trim();
-
+          
         this.showResponseModal(cleanResponse);
-
+        
         // Mensagem de sucesso baseada no resultado
         if (transcriptionErrors > 0) {
           this.showNotification(`⚠️ Resposta gerada! ${transcriptionErrors} erro(s) na transcrição`, 'warning');
@@ -718,12 +715,12 @@ class WhatsAppAIAssistant {
           this.showNotification('✅ Resposta gerada com sucesso!', 'success');
         }
       }
-
+      
     } catch (error) {
       console.error('[WhatsApp AI] Erro completo:', error);
-
+      
       let errorMessage = '❌ Erro ao gerar resposta.';
-
+      
       if (error.message.includes('API key') || error.message.includes('401')) {
         errorMessage = '🔑 API Key inválida ou sem permissões para OpenAI/Whisper.';
       } else if (error.message.includes('429')) {
@@ -733,13 +730,13 @@ class WhatsAppAIAssistant {
       } else if (error.message.includes('transcrição')) {
         errorMessage = `🎵 Parece que deu erro na transcrição de áudios. Use debugTranscricaoCompleto() no console para diagnóstico.`;
       }
-
+      
       this.showNotification(errorMessage, 'error');
-
+      
       // Log para debug
       console.log('[WhatsApp AI] Para diagnóstico detalhado, execute no console:');
       console.log('debugTranscricaoCompleto()');
-
+      
     } finally {
       this.button.classList.remove('loading');
     }
@@ -766,7 +763,7 @@ class WhatsAppAIAssistant {
   async getLastMessagesWithAudio(limit = 8) {
     console.log('[WhatsApp AI] Buscando mensagens com transcrição de áudio...');
     const messages = [];
-
+    
     // Seletores mais abrangentes para mensagens
     const messageSelectors = [
       '[data-testid="msg-container"]',
@@ -774,9 +771,9 @@ class WhatsAppAIAssistant {
       '.message-in, .message-out',
       '[class*="message"]'
     ];
-
+    
     let messageElements = [];
-
+    
     // Tentar encontrar mensagens com seletores diferentes
     for (const selector of messageSelectors) {
       messageElements = document.querySelectorAll(selector);
@@ -785,46 +782,39 @@ class WhatsAppAIAssistant {
         break;
       }
     }
-
+    
     if (messageElements.length === 0) {
       console.log('[WhatsApp AI] Nenhuma mensagem encontrada - tentando método alternativo');
-
+      
       // Método alternativo: buscar por área de mensagens
       const chatArea = document.querySelector('[data-testid="conversation-panel-messages"]') ||
                       document.querySelector('#main') ||
                       document.querySelector('[class*="chat"]');
-
+      
       if (chatArea) {
         messageElements = chatArea.querySelectorAll('div[class*="message"], div[data-id]');
         console.log(`[WhatsApp AI] Método alternativo encontrou ${messageElements.length} elementos`);
       }
     }
-
+    
     if (messageElements.length === 0) {
       console.log('[WhatsApp AI] Nenhuma mensagem encontrada');
       return messages;
     }
-
+    
     // Pega as últimas mensagens
     const lastMessages = Array.from(messageElements).slice(-limit);
     console.log(`[WhatsApp AI] Processando últimas ${lastMessages.length} mensagens`);
-
+    
     for (let index = 0; index < lastMessages.length; index++) {
       const msgElement = lastMessages[index];
-
+      
       // Determinar se é mensagem enviada ou recebida
-      const isOutgoing = msgElement.classList.contains('message-out') ||
+      const isOutgoing = msgElement.classList.contains('message-out') || 
                         msgElement.querySelector('[data-testid="tail-out"]') ||
                         msgElement.closest('.message-out') ||
                         msgElement.querySelector('[data-icon="msg-time"]')?.closest('[class*="out"]');
-
-      const mediaAttachments = await this.collectMediaFromMessage(msgElement);
-      if (mediaAttachments.length > 0) {
-        console.log(`[WhatsApp AI] Mídia detectada na mensagem ${index + 1}: ${mediaAttachments.length} item(s)`);
-      }
-
-      let messageAdded = false;
-
+      
       // Seletores mais abrangentes para áudio
       const audioSelectors = [
         '[data-testid="audio-play-button"]',
@@ -836,7 +826,7 @@ class WhatsAppAIAssistant {
         '[class*="audio"] button',
         'audio'
       ];
-
+      
       let audioElement = null;
       for (const selector of audioSelectors) {
         audioElement = msgElement.querySelector(selector);
@@ -845,46 +835,39 @@ class WhatsAppAIAssistant {
           break;
         }
       }
-
+      
       if (audioElement) {
         console.log(`[WhatsApp AI] Encontrado áudio na mensagem ${index + 1}, transcrevendo...`);
-
+        
         try {
           const transcription = await this.transcribeAudio(msgElement);
-
+          
           messages.push({
             text: `${transcription} (mensagem transcrita de áudio)`,
             isOutgoing: !!isOutgoing,
             sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: true,
-            media: mediaAttachments
+            isAudio: true
           });
-
-          messageAdded = true;
+          
           console.log(`[WhatsApp AI] Áudio transcrito: ${transcription.substring(0, 50)}...`);
         } catch (error) {
           console.error('[WhatsApp AI] Erro na transcrição:', error);
-
-          const errorMsg = error.message.includes('API key') ?
-            '[ÁUDIO - erro na API Key]' :
+          
+          // Mensagem de fallback mais informativa
+          const errorMsg = error.message.includes('API key') ? 
+            '[ÁUDIO - erro na API Key]' : 
             '[ÁUDIO - erro na transcrição]';
-
+            
           messages.push({
             text: errorMsg,
             isOutgoing: !!isOutgoing,
             sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: true,
-            media: mediaAttachments
+            isAudio: true
           });
-
-          messageAdded = true;
         }
-      }
-
-      if (messageAdded) {
         continue;
       }
-
+      
       // Mensagens de texto normais - seletores mais abrangentes
       const textSelectors = [
         '[data-testid="selectable-text"]',
@@ -895,7 +878,7 @@ class WhatsAppAIAssistant {
         'span[dir="ltr"]',
         '[class*="text"] span'
       ];
-
+      
       let textElement = null;
       for (const selector of textSelectors) {
         textElement = msgElement.querySelector(selector);
@@ -903,7 +886,7 @@ class WhatsAppAIAssistant {
           break;
         }
       }
-
+      
       if (textElement) {
         const text = textElement.innerText.trim();
         if (text && text.length > 0) {
@@ -911,10 +894,8 @@ class WhatsAppAIAssistant {
             text: text,
             isOutgoing: !!isOutgoing,
             sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: false,
-            media: mediaAttachments
+            isAudio: false
           });
-          messageAdded = true;
           console.log(`[WhatsApp AI] Mensagem texto ${index + 1}: ${text.substring(0, 50)}...`);
         }
       } else {
@@ -925,362 +906,15 @@ class WhatsAppAIAssistant {
             text: fallbackText,
             isOutgoing: !!isOutgoing,
             sender: isOutgoing ? 'Você' : 'Contato',
-            isAudio: false,
-            media: mediaAttachments
+            isAudio: false
           });
-          messageAdded = true;
           console.log(`[WhatsApp AI] Texto fallback ${index + 1}: ${fallbackText.substring(0, 50)}...`);
         }
       }
-
-      if (!messageAdded && mediaAttachments.length > 0) {
-        const placeholderText = this.buildMediaPlaceholderText(mediaAttachments);
-        messages.push({
-          text: placeholderText,
-          isOutgoing: !!isOutgoing,
-          sender: isOutgoing ? 'Você' : 'Contato',
-          isAudio: false,
-          media: mediaAttachments
-        });
-        console.log(`[WhatsApp AI] Mensagem mídia ${index + 1}: ${placeholderText} (${mediaAttachments.length} arquivo(s))`);
-      }
     }
-
+    
     console.log(`[WhatsApp AI] Total: ${messages.length} mensagens processadas`);
     return messages;
-  }
-
-
-
-  buildMediaPlaceholderText(mediaAttachments = []) {
-    if (!Array.isArray(mediaAttachments) || mediaAttachments.length === 0) {
-      return '[Mídia]';
-    }
-
-    const counts = mediaAttachments.reduce((acc, item) => {
-      const type = item?.type === 'video' ? 'video' : 'image';
-      acc[type] = (acc[type] || 0) + 1;
-      return acc;
-    }, {});
-
-    if (counts.video && counts.image) {
-      return '[Mídia: imagens e vídeos]';
-    }
-
-    if (counts.video) {
-      return counts.video > 1 ? '[Vídeos]' : '[Vídeo]';
-    }
-
-    return counts.image > 1 ? '[Imagens]' : '[Imagem]';
-  }
-
-  async collectMediaFromMessage(msgElement) {
-    const attachments = [];
-
-    if (!msgElement || typeof msgElement.querySelectorAll !== 'function') {
-      return attachments;
-    }
-
-    const mediaNodes = msgElement.querySelectorAll('img, video, [data-testid="media-thumb"]');
-    if (!mediaNodes || mediaNodes.length === 0) {
-      return attachments;
-    }
-
-    const seen = new Set();
-
-    for (const element of Array.from(mediaNodes)) {
-      if (!element) {
-        continue;
-      }
-
-      const extracted = await this.extractMediaFromElement(element, seen);
-      for (const media of extracted) {
-        attachments.push(media);
-        if (attachments.length >= this.maxMediaPerMessage) {
-          return attachments;
-        }
-      }
-    }
-
-    return attachments;
-  }
-
-  async extractMediaFromElement(element, seenUrls) {
-    const attachments = [];
-    const candidates = this.getMediaCandidateUrls(element);
-
-    for (const candidate of candidates) {
-      const url = candidate.url;
-      if (!url) {
-        continue;
-      }
-
-      const key = `${candidate.typeHint || 'image'}::${url}`;
-      if (seenUrls.has(key)) {
-        continue;
-      }
-
-      seenUrls.add(key);
-
-      try {
-        const mediaData = await this.loadMediaFromUrl(url, candidate.typeHint);
-        if (mediaData) {
-          attachments.push(mediaData);
-          if (attachments.length >= this.maxMediaPerMessage) {
-            break;
-          }
-        }
-      } catch (error) {
-        console.warn('[WhatsApp AI] Falha ao extrair mídia da mensagem:', error);
-      }
-    }
-
-    return attachments;
-  }
-
-  getMediaCandidateUrls(element) {
-    const candidates = [];
-    const seen = new Set();
-
-    const addCandidate = (rawUrl, typeHint = 'image') => {
-      if (typeof rawUrl !== 'string') {
-        return;
-      }
-
-      let url = rawUrl.trim();
-      if (!url) {
-        return;
-      }
-
-      if (url.startsWith('url(') && url.endsWith(')')) {
-        url = url.slice(4, -1).trim();
-      }
-
-      if ((url.startsWith('"') && url.endsWith('"')) || (url.startsWith("'") && url.endsWith("'"))) {
-        url = url.slice(1, -1);
-      }
-
-      if (!url || seen.has(url)) {
-        return;
-      }
-
-      seen.add(url);
-      candidates.push({ url, typeHint });
-    };
-
-    const tagName = element.tagName ? element.tagName.toUpperCase() : '';
-
-    if (tagName === 'IMG') {
-      addCandidate(element.currentSrc, 'image');
-      addCandidate(element.getAttribute('src'), 'image');
-
-      const srcset = element.getAttribute('srcset');
-      if (srcset) {
-        srcset.split(',').forEach(part => {
-          const clean = part.trim().split(' ')[0];
-          addCandidate(clean, 'image');
-        });
-      }
-    }
-
-    if (tagName === 'VIDEO') {
-      addCandidate(element.poster, 'image');
-      addCandidate(element.getAttribute('poster'), 'image');
-    }
-
-    const dataTestId = element.getAttribute && element.getAttribute('data-testid');
-    const datasetTestId = element.dataset?.testid || element.dataset?.testId;
-    if (dataTestId === 'media-thumb' || datasetTestId === 'media-thumb') {
-      const inlineBackground = element.style?.backgroundImage;
-      if (inlineBackground && inlineBackground !== 'none') {
-        addCandidate(inlineBackground, 'image');
-      }
-
-      try {
-        const computedBackground = window.getComputedStyle(element).backgroundImage;
-        if (computedBackground && computedBackground !== 'none') {
-          addCandidate(computedBackground, 'image');
-        }
-      } catch (error) {
-        // Ignora erros de getComputedStyle em elementos desconectados
-      }
-    }
-
-    return candidates;
-  }
-
-  async loadMediaFromUrl(url, typeHint = 'image') {
-    if (typeof url !== 'string' || !url) {
-      return null;
-    }
-
-    const cleanedUrl = url.trim();
-    if (!cleanedUrl) {
-      return null;
-    }
-
-    if (cleanedUrl.startsWith('data:')) {
-      if (cleanedUrl.length > this.maxMediaDataUrlLength) {
-        console.warn('[WhatsApp AI] Mídia em data URL ignorada por exceder tamanho máximo permitido.');
-        return null;
-      }
-
-      const mimeMatch = cleanedUrl.match(/^data:([^;]+);/i);
-      const mimeType = mimeMatch ? mimeMatch[1] : (typeHint === 'video' ? 'video/mp4' : 'image/jpeg');
-
-      return {
-        type: mimeType.startsWith('video') ? 'video' : 'image',
-        mimeType,
-        dataUrl: cleanedUrl
-      };
-    }
-
-    try {
-      const response = await fetch(cleanedUrl, { credentials: 'include' });
-      if (!response.ok) {
-        throw new Error(`Falha ao baixar mídia (${response.status})`);
-      }
-
-      const blob = await response.blob();
-      if (blob.size > this.maxMediaBytes) {
-        console.warn('[WhatsApp AI] Mídia ignorada por exceder tamanho máximo permitido:', blob.size);
-        return null;
-      }
-
-      const mimeType = blob.type || (typeHint === 'video' ? 'video/mp4' : 'image/jpeg');
-      const dataUrl = await this.blobToDataUrl(blob);
-
-      if (!dataUrl) {
-        return null;
-      }
-
-      if (dataUrl.length > this.maxMediaDataUrlLength) {
-        console.warn('[WhatsApp AI] Data URL gerada excede tamanho máximo permitido.');
-        return null;
-      }
-
-      return {
-        type: mimeType.startsWith('video') ? 'video' : 'image',
-        mimeType,
-        dataUrl
-      };
-    } catch (error) {
-      console.warn('[WhatsApp AI] Falha ao baixar mídia:', error);
-      return null;
-    }
-  }
-
-  blobToDataUrl(blob) {
-    return new Promise((resolve, reject) => {
-      try {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-        reader.onerror = () => reject(reader.error || new Error('Falha ao converter blob em data URL'));
-        reader.readAsDataURL(blob);
-      } catch (error) {
-        reject(error);
-      }
-    });
-  }
-
-  buildMultimodalConversation(messages = []) {
-    if (!Array.isArray(messages) || messages.length === 0) {
-      return [];
-    }
-
-    const structured = [];
-    const baseInstructions = `${this.settings.responseStyle}
-
-Você é um assistente que gera respostas para conversas no WhatsApp.
-
-IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua explicações, contexto ou identificações como "Resposta:" ou similar. Apenas a resposta natural em português brasileiro.`;
-
-    structured.push({
-      role: 'system',
-      content: [
-        {
-          type: 'input_text',
-          text: baseInstructions
-        }
-      ]
-    });
-
-    let totalMediaItems = 0;
-
-    for (const message of messages) {
-      if (!message) {
-        continue;
-      }
-
-      const contentParts = [];
-      const senderPrefix = message.sender ? `${message.sender}: ` : '';
-      const text = typeof message.text === 'string' ? message.text.trim() : '';
-
-      if (text) {
-        contentParts.push({
-          type: 'input_text',
-          text: `${senderPrefix}${text}`
-        });
-      } else if (Array.isArray(message.media) && message.media.length > 0) {
-        contentParts.push({
-          type: 'input_text',
-          text: `${senderPrefix}${this.buildMediaPlaceholderText(message.media)}`
-        });
-      }
-
-      if (Array.isArray(message.media) && message.media.length > 0) {
-        for (const media of message.media) {
-          if (!media?.dataUrl || typeof media.dataUrl !== 'string') {
-            continue;
-          }
-
-          if (!media.dataUrl.startsWith('data:')) {
-            console.warn('[WhatsApp AI] Mídia ignorada por não estar em data URL.');
-            continue;
-          }
-
-          if (media.dataUrl.length > this.maxMediaDataUrlLength) {
-            console.warn('[WhatsApp AI] Mídia ignorada por exceder tamanho máximo permitido na conversa.');
-            continue;
-          }
-
-          if (totalMediaItems >= this.maxTotalMediaItems) {
-            console.warn('[WhatsApp AI] Limite total de anexos atingido. Ignorando mídias adicionais.');
-            break;
-          }
-
-          let mimeType = media.mimeType || '';
-          if (!mimeType) {
-            const dataMatch = media.dataUrl.match(/^data:([^;]+);/i);
-            if (dataMatch) {
-              mimeType = dataMatch[1];
-            }
-          }
-
-          if (mimeType && !mimeType.startsWith('image/')) {
-            console.warn('[WhatsApp AI] Mídia ignorada por não ser imagem compatível com o modelo.');
-            continue;
-          }
-
-          contentParts.push({
-            type: 'input_image',
-            image_url: media.dataUrl
-          });
-          totalMediaItems += 1;
-        }
-      }
-
-      if (contentParts.length === 0) {
-        continue;
-      }
-
-      structured.push({
-        role: message.isOutgoing ? 'assistant' : 'user',
-        content: contentParts
-      });
-    }
-
-    return structured;
   }
 
   isBlobLike(value) {
@@ -1605,10 +1239,10 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return response.text;
   }
 
-  async callOpenAI(messages) {
+  async callOpenAI(prompt) {
     const response = await chrome.runtime.sendMessage({
       type: 'GENERATE_COMPLETION',
-      messages,
+      prompt,
       model: this.settings.model
     });
 
