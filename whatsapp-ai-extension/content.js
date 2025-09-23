@@ -12,69 +12,6 @@ const pendingStoreRequests = new Map();
 const STORE_READY_TIMEOUT_MS = 2000;
 const STORE_READY_TIMEOUT_CODE = 'WA_STORE_READY_TIMEOUT';
 
-const markPageStoreReady = () => {
-  if (typeof window !== 'undefined') {
-    window.__zapPageStoreReady = true;
-  }
-};
-
-const hasStoreWithMsg = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const storeReady = Boolean(window.Store && window.Store.Msg);
-  if (storeReady) {
-    markPageStoreReady();
-  }
-
-  return storeReady;
-};
-
-function waitForStoreReadySignal() {
-  return new Promise((resolve, reject) => {
-    if (window.__zapPageStoreReady || hasStoreWithMsg()) {
-      resolve(true);
-      return;
-    }
-
-    let readinessTimeout = null;
-
-    const cleanup = () => {
-      window.removeEventListener('message', handleReady);
-      if (readinessTimeout) {
-        clearTimeout(readinessTimeout);
-        readinessTimeout = null;
-      }
-    };
-
-    const handleReady = (event) => {
-      if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
-        return;
-      }
-
-      markPageStoreReady();
-      cleanup();
-      resolve(true);
-    };
-
-    window.addEventListener('message', handleReady);
-
-    readinessTimeout = setTimeout(() => {
-      if (hasStoreWithMsg()) {
-        cleanup();
-        resolve(true);
-        return;
-      }
-
-      cleanup();
-      const timeoutError = new Error('Timeout aguardando readiness do Store');
-      timeoutError.code = STORE_READY_TIMEOUT_CODE;
-      reject(timeoutError);
-    }, STORE_READY_TIMEOUT_MS);
-  });
-}
-
 if (typeof window !== 'undefined') {
   window.addEventListener('message', (event) => {
     if (event.source !== window || !event.data) {
@@ -84,7 +21,7 @@ if (typeof window !== 'undefined') {
     const { data } = event;
 
     if (data.type === WA_STORE_READY) {
-      markPageStoreReady();
+      window.__zapPageStoreReady = true;
       return;
     }
 
@@ -113,7 +50,7 @@ const ensurePageStoreReady = (() => {
   let scriptInjected = false;
 
   return () => {
-    if (window.__zapPageStoreReady || hasStoreWithMsg()) {
+    if (window.__zapPageStoreReady) {
       return Promise.resolve(true);
     }
 
@@ -121,35 +58,64 @@ const ensurePageStoreReady = (() => {
       return readyPromise;
     }
 
-    const promise = waitForStoreReadySignal();
+    const promise = new Promise((resolve, reject) => {
+      let readinessTimeout = null;
 
-    if (!scriptInjected) {
-      scriptInjected = true;
-
-      try {
-        const script = document.createElement('script');
-        script.type = 'text/javascript';
-        script.async = false;
-        script.src = chrome.runtime.getURL('page-store.js');
-        script.onload = () => {
-          if (script.parentNode) {
-            script.parentNode.removeChild(script);
-          }
-        };
-        script.onerror = () => {
-          if (script.parentNode) {
-            script.parentNode.removeChild(script);
-          }
-        };
-
-        const parent = document.documentElement || document.head || document.body;
-        if (parent && typeof parent.appendChild === 'function') {
-          parent.appendChild(script);
+      const cleanup = () => {
+        window.removeEventListener('message', handleReady);
+        if (readinessTimeout) {
+          clearTimeout(readinessTimeout);
+          readinessTimeout = null;
         }
-      } catch (error) {
-        console.warn('[WhatsApp AI] Falha ao injetar page-store.js', error);
+      };
+
+      const handleReady = (event) => {
+        if (event.source !== window || !event.data || event.data.type !== WA_STORE_READY) {
+          return;
+        }
+
+        window.__zapPageStoreReady = true;
+        cleanup();
+        resolve(true);
+      };
+
+      window.addEventListener('message', handleReady);
+
+      readinessTimeout = setTimeout(() => {
+        cleanup();
+        const timeoutError = new Error('Timeout aguardando readiness do Store');
+        timeoutError.code = STORE_READY_TIMEOUT_CODE;
+        reject(timeoutError);
+      }, STORE_READY_TIMEOUT_MS);
+
+      if (!scriptInjected) {
+        scriptInjected = true;
+
+        try {
+          const script = document.createElement('script');
+          script.type = 'text/javascript';
+          script.async = false;
+          script.src = chrome.runtime.getURL('page-store.js');
+          script.onload = () => {
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          };
+          script.onerror = () => {
+            if (script.parentNode) {
+              script.parentNode.removeChild(script);
+            }
+          };
+
+          const parent = document.documentElement || document.head || document.body;
+          if (parent && typeof parent.appendChild === 'function') {
+            parent.appendChild(script);
+          }
+        } catch (error) {
+          console.warn('[WhatsApp AI] Falha ao injetar page-store.js', error);
+        }
       }
-    }
+    });
 
     readyPromise = promise.catch((error) => {
       readyPromise = null;
@@ -209,9 +175,7 @@ async function requestStoreBlob(messageId) {
     await ensurePageStoreReady();
   } catch (error) {
     if (error && error.code === STORE_READY_TIMEOUT_CODE) {
-      console.warn(
-        '[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado (window.Store.Msg indisponível)'
-      );
+      console.warn('[WhatsApp AI] Store do WhatsApp não sinalizou readiness no tempo esperado');
       return null;
     }
 
