@@ -18,12 +18,16 @@ async function testarTranscricao() {
   console.log('✅ Extensão encontrada');
   
   // Verificar API Key
-  const settings = window.whatsappAI.settings;
-  if (!settings.apiKey) {
+  const assistant = window.whatsappAI;
+  const hasApiKey = typeof assistant.ensureApiKeyConfigured === 'function'
+    ? await assistant.ensureApiKeyConfigured()
+    : !!assistant.apiKeyConfigured;
+
+  if (!hasApiKey) {
     console.error('❌ API Key não configurada! Configure primeiro no popup da extensão.');
     return;
   }
-  
+
   console.log('✅ API Key configurada');
   
   // Buscar mensagens de áudio
