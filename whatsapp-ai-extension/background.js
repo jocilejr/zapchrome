@@ -71,131 +71,10 @@ async function transcreverArrayBuffer(arrayBuffer, mime = 'audio/ogg') {
   return data.text;
 }
 
-const MAX_IMAGE_ATTACHMENTS = 12;
-const MAX_IMAGE_DATA_URL_LENGTH = 12 * 1024 * 1024;
-
-function normalizeMessagesForOpenAI(rawMessages = []) {
-  if (!Array.isArray(rawMessages)) {
-    return [];
-  }
-
-  const allowedRoles = new Set(['system', 'user', 'assistant']);
-  const normalized = [];
-  let imageCount = 0;
-
-  for (const message of rawMessages) {
-    if (!message) {
-      continue;
-    }
-
-    const role = allowedRoles.has(message.role) ? message.role : 'user';
-    const rawContent = Array.isArray(message.content)
-      ? message.content
-      : typeof message.content === 'string'
-        ? [{ type: 'input_text', text: message.content }]
-        : [];
-
-    const content = [];
-
-    for (const item of rawContent) {
-      if (!item) {
-        continue;
-      }
-
-      if (typeof item === 'string') {
-        const trimmed = item.trim();
-        if (trimmed) {
-          content.push({ type: 'text', text: trimmed });
-        }
-        continue;
-      }
-
-      const itemType = item.type;
-      if (itemType === 'input_text' || itemType === 'text') {
-        const textValue = typeof item.text === 'string' ? item.text.trim() : '';
-        if (textValue) {
-          content.push({ type: 'text', text: textValue });
-        }
-        continue;
-      }
-
-      if (itemType === 'input_image' || itemType === 'image_url') {
-        if (imageCount >= MAX_IMAGE_ATTACHMENTS) {
-          continue;
-        }
-
-        let imageUrl = null;
-        if (typeof item.image_url === 'string') {
-          imageUrl = item.image_url;
-        } else if (item.image_url?.url) {
-          imageUrl = item.image_url.url;
-        } else if (typeof item.url === 'string') {
-          imageUrl = item.url;
-        }
-
-        if (!imageUrl || typeof imageUrl !== 'string') {
-          continue;
-        }
-
-        const trimmedUrl = imageUrl.trim();
-        if (!trimmedUrl || !trimmedUrl.startsWith('data:image')) {
-          console.warn('[WhatsApp AI] Imagem ignorada por formato incompatível com o envio.');
-          continue;
-        }
-
-        if (trimmedUrl.length > MAX_IMAGE_DATA_URL_LENGTH) {
-          console.warn('[WhatsApp AI] Imagem ignorada por exceder o tamanho máximo suportado.');
-          continue;
-        }
-
-        content.push({
-          type: 'image_url',
-          image_url: {
-            url: trimmedUrl,
-            detail: 'auto'
-          }
-        });
-
-        imageCount += 1;
-      }
-    }
-
-    if (content.length > 0) {
-      normalized.push({ role, content });
-    }
-  }
-
-  return normalized;
-}
-
-async function generateChatCompletion({ messages, prompt, model = 'gpt-4o' } = {}) {
+async function generateChatCompletion(prompt, model = 'gpt-4o') {
   const apiKey = await getOpenAIKey();
   if (!apiKey) {
     throw new Error('Configure sua OPENAI_KEY no popup.');
-  }
-
-  let payloadMessages = [];
-
-  if (Array.isArray(messages) && messages.length > 0) {
-    payloadMessages = normalizeMessagesForOpenAI(messages);
-  }
-
-  if ((!payloadMessages || payloadMessages.length === 0) && typeof prompt === 'string' && prompt.trim()) {
-    payloadMessages = [
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: prompt.trim()
-          }
-        ]
-      }
-    ];
-  }
-
-  if (!payloadMessages || payloadMessages.length === 0) {
-    throw new Error('Nenhum conteúdo disponível para geração da resposta.');
   }
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -206,7 +85,12 @@ async function generateChatCompletion({ messages, prompt, model = 'gpt-4o' } = {
     },
     body: JSON.stringify({
       model,
-      messages: payloadMessages,
+      messages: [
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
       max_tokens: 300,
       temperature: 0.7
     })
@@ -218,27 +102,7 @@ async function generateChatCompletion({ messages, prompt, model = 'gpt-4o' } = {
   }
 
   const data = await response.json();
-  const choice = data.choices?.[0]?.message;
-
-  if (!choice) {
-    return '';
-  }
-
-  if (typeof choice.content === 'string') {
-    return choice.content.trim();
-  }
-
-  if (Array.isArray(choice.content)) {
-    const joined = choice.content
-      .map(part => (part?.text || '').trim())
-      .filter(Boolean)
-      .join('
-')
-      .trim();
-    return joined;
-  }
-
-  return '';
+  return data.choices?.[0]?.message?.content?.trim() || '';
 }
 
 // Listener para mensagens dos content scripts
@@ -261,11 +125,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
       }
       case 'GENERATE_COMPLETION': {
-        const text = await generateChatCompletion({
-          messages: request.messages,
-          prompt: request.prompt,
-          model: request.model || 'gpt-4o'
-        });
+        const text = await generateChatCompletion(request.prompt, request.model || 'gpt-4o');
         sendResponse({ ok: true, text });
         return;
       }
