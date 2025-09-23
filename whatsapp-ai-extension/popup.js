@@ -5,22 +5,17 @@ class PopupManager {
       apiKey: document.getElementById('apiKey'),
       model: document.getElementById('model'),
       responseStyle: document.getElementById('responseStyle'),
-      transcriptionWebhookUrl: document.getElementById('transcriptionWebhookUrl'),
       saveButton: document.getElementById('saveButton'),
       testButton: document.getElementById('testButton'),
       toggleApiKey: document.getElementById('toggleApiKey'),
-      status: document.getElementById('status'),
-      tabButtons: document.querySelectorAll('[data-tab-button]'),
-      tabContents: document.querySelectorAll('.tab-content')
+      status: document.getElementById('status')
     };
-
-    this.activeTab = 'general';
+    
     this.init();
   }
 
   async init() {
     await this.loadSettings();
-    this.setupTabs();
     this.attachEventListeners();
     this.setDefaultValues();
   }
@@ -28,7 +23,7 @@ class PopupManager {
   async loadSettings() {
     try {
       const [syncSettings, localSettings] = await Promise.all([
-        chrome.storage.sync.get(['model', 'responseStyle', 'transcriptionWebhookUrl']),
+        chrome.storage.sync.get(['model', 'responseStyle']),
         chrome.storage.local.get('OPENAI_KEY')
       ]);
 
@@ -40,9 +35,6 @@ class PopupManager {
       }
       if (syncSettings.responseStyle) {
         this.elements.responseStyle.value = syncSettings.responseStyle;
-      }
-      if (this.elements.transcriptionWebhookUrl) {
-        this.elements.transcriptionWebhookUrl.value = syncSettings.transcriptionWebhookUrl || '';
       }
 
     } catch (error) {
@@ -59,17 +51,12 @@ class PopupManager {
   attachEventListeners() {
     this.elements.saveButton.addEventListener('click', () => this.saveSettings());
     this.elements.testButton.addEventListener('click', () => this.testAPI());
-    if (this.elements.toggleApiKey) {
-      this.elements.toggleApiKey.addEventListener('click', () => this.toggleApiKeyVisibility());
-    }
-
+    this.elements.toggleApiKey.addEventListener('click', () => this.toggleApiKeyVisibility());
+    
     // Auto-save quando os campos mudam
     this.elements.apiKey.addEventListener('input', () => this.debounceAutoSave());
     this.elements.model.addEventListener('change', () => this.autoSave());
     this.elements.responseStyle.addEventListener('input', () => this.debounceAutoSave());
-    if (this.elements.transcriptionWebhookUrl) {
-      this.elements.transcriptionWebhookUrl.addEventListener('input', () => this.debounceAutoSave());
-    }
   }
 
   debounceAutoSave() {
@@ -80,16 +67,13 @@ class PopupManager {
   async autoSave() {
     try {
       const apiKey = this.elements.apiKey.value.trim();
-      const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim() || '';
       await Promise.all([
         chrome.storage.local.set({ OPENAI_KEY: apiKey }),
         chrome.storage.sync.set({
           model: this.elements.model.value,
-          responseStyle: this.elements.responseStyle.value.trim(),
-          transcriptionWebhookUrl: webhookUrl
+          responseStyle: this.elements.responseStyle.value.trim()
         })
       ]);
-      this.notifyContentScripts();
     } catch (error) {
       console.error('Erro no auto-save:', error);
     }
@@ -99,10 +83,9 @@ class PopupManager {
     const apiKey = this.elements.apiKey.value.trim();
     const model = this.elements.model.value;
     const responseStyle = this.elements.responseStyle.value.trim();
-    const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim() || '';
 
-    if (!apiKey && !webhookUrl) {
-      this.showStatus('Informe a API Key da OpenAI ou um webhook de transcrição', 'error');
+    if (!apiKey) {
+      this.showStatus('Por favor, insira sua API Key da OpenAI', 'error');
       return;
     }
 
@@ -118,8 +101,7 @@ class PopupManager {
         chrome.storage.local.set({ OPENAI_KEY: apiKey }),
         chrome.storage.sync.set({
           model,
-          responseStyle,
-          transcriptionWebhookUrl: webhookUrl
+          responseStyle
         })
       ]);
 
@@ -138,14 +120,9 @@ class PopupManager {
   async testAPI() {
     const apiKey = this.elements.apiKey.value.trim();
     const model = this.elements.model.value;
-    const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim();
 
     if (!apiKey) {
-      if (webhookUrl) {
-        this.showStatus('Configure uma API Key para testar a OpenAI. O webhook será usado apenas na transcrição.', 'warning');
-      } else {
-        this.showStatus('Insira sua API Key primeiro', 'error');
-      }
+      this.showStatus('Insira sua API Key primeiro', 'error');
       return;
     }
 
@@ -219,47 +196,13 @@ class PopupManager {
 
   showStatus(message, type = 'info') {
     this.elements.status.textContent = message;
-      this.elements.status.className = `status ${type}`;
-
-    if (type === 'success' || type === 'error' || type === 'warning') {
+    this.elements.status.className = `status ${type}`;
+    
+    if (type === 'success' || type === 'error') {
       setTimeout(() => {
         this.elements.status.textContent = '';
         this.elements.status.className = 'status';
       }, 3000);
-    }
-  }
-
-  setupTabs() {
-    const buttons = this.elements.tabButtons;
-    if (!buttons || buttons.length === 0) {
-      return;
-    }
-
-    buttons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const targetTab = button.dataset.tab;
-        this.switchTab(targetTab);
-      });
-    });
-  }
-
-  switchTab(tab) {
-    if (!tab || tab === this.activeTab) {
-      return;
-    }
-
-    this.activeTab = tab;
-
-    if (this.elements.tabButtons) {
-      this.elements.tabButtons.forEach((button) => {
-        button.classList.toggle('active', button.dataset.tab === tab);
-      });
-    }
-
-    if (this.elements.tabContents) {
-      this.elements.tabContents.forEach((content) => {
-        content.classList.toggle('active', content.dataset.tab === tab);
-      });
     }
   }
 }
