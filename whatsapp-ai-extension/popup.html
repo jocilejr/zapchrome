@@ -20,38 +20,59 @@
     </div>
 
     <div class="content">
-      <div class="section">
-        <label for="apiKey">API Key OpenAI:</label>
-        <div class="input-group">
-          <input type="password" id="apiKey" placeholder="sk-..." />
-          <button type="button" id="toggleApiKey" class="toggle-btn">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
-              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
-            </svg>
-          </button>
+      <div class="tabs">
+        <button class="tab-button active" data-tab-button data-tab="general">Geral</button>
+        <button class="tab-button" data-tab-button data-tab="transcription">Transcrição</button>
+      </div>
+
+      <div class="tab-content active" data-tab="general">
+        <div class="section">
+          <label for="apiKey">API Key OpenAI:</label>
+          <div class="input-group">
+            <input type="password" id="apiKey" placeholder="sk-..." />
+            <button type="button" id="toggleApiKey" class="toggle-btn">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" stroke="currentColor" stroke-width="2"/>
+                <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="section">
+          <label for="model">Modelo OpenAI:</label>
+          <select id="model">
+            <option value="gpt-4o">GPT-4o (Mais Avançado)</option>
+            <option value="gpt-4o-mini">GPT-4o Mini (Mais Rápido)</option>
+            <option value="gpt-4-turbo">GPT-4 Turbo</option>
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Econômico)</option>
+          </select>
+        </div>
+
+        <div class="section">
+          <label for="responseStyle">Estilo das Respostas:</label>
+          <textarea
+            id="responseStyle"
+            rows="4"
+            placeholder="Ex: Responda sempre de forma amigável e casual, usando emojis quando apropriado..."
+          ></textarea>
+          <div class="help-text">
+            Descreva como você quer que a IA responda (tom, estilo, personalidade)
+          </div>
         </div>
       </div>
 
-      <div class="section">
-        <label for="model">Modelo OpenAI:</label>
-        <select id="model">
-          <option value="gpt-4o">GPT-4o (Mais Avançado)</option>
-          <option value="gpt-4o-mini">GPT-4o Mini (Mais Rápido)</option>
-          <option value="gpt-4-turbo">GPT-4 Turbo</option>
-          <option value="gpt-3.5-turbo">GPT-3.5 Turbo (Econômico)</option>
-        </select>
-      </div>
-
-      <div class="section">
-        <label for="responseStyle">Estilo das Respostas:</label>
-        <textarea 
-          id="responseStyle" 
-          rows="4" 
-          placeholder="Ex: Responda sempre de forma amigável e casual, usando emojis quando apropriado..."
-        ></textarea>
-        <div class="help-text">
-          Descreva como você quer que a IA responda (tom, estilo, personalidade)
+      <div class="tab-content" data-tab="transcription">
+        <div class="section">
+          <label for="transcriptionWebhookUrl">Webhook de Transcrição (n8n):</label>
+          <input type="url" id="transcriptionWebhookUrl" placeholder="https://seu-servidor.n8n.cloud/webhook" />
+          <div class="help-text">
+            Informe a URL do fluxo que receberá o áudio. Se deixar vazio, a transcrição usará o Whisper padrão da OpenAI.
+          </div>
+        </div>
+        <div class="webhook-info">
+          <p>O webhook recebe o arquivo (campo <strong>file</strong>) e um JSON de metadados (campo <strong>metadata</strong>).</p>
+          <p>Retorne <code>{ "text": "sua transcrição" }</code> ou texto puro com a transcrição para continuar o fluxo.</p>
         </div>
       </div>
 

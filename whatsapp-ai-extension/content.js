@@ -488,7 +488,8 @@ class WhatsAppAIAssistant {
     this.button = null;
     this.settings = {
       model: 'gpt-4o',
-      responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa'
+      responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa',
+      transcriptionWebhookUrl: ''
     };
     this.apiKeyConfigured = false;
     this.lastKnownAudioSrc = null;
@@ -515,10 +516,11 @@ class WhatsAppAIAssistant {
 
   async loadSettings() {
     try {
-      const result = await chrome.storage.sync.get(['model', 'responseStyle']);
+      const result = await chrome.storage.sync.get(['model', 'responseStyle', 'transcriptionWebhookUrl']);
       this.settings = {
         model: result.model || 'gpt-4o',
-        responseStyle: result.responseStyle || 'Responda de forma natural e contextual, mantendo o tom da conversa'
+        responseStyle: result.responseStyle || 'Responda de forma natural e contextual, mantendo o tom da conversa',
+        transcriptionWebhookUrl: result.transcriptionWebhookUrl || ''
       };
 
       await this.ensureApiKeyConfigured();
@@ -530,7 +532,8 @@ class WhatsAppAIAssistant {
   async ensureApiKeyConfigured() {
     try {
       const response = await chrome.runtime.sendMessage({ type: 'CHECK_API_KEY' });
-      this.apiKeyConfigured = !!response?.configured;
+      const webhookConfigured = !!this.settings.transcriptionWebhookUrl || !!response?.webhookConfigured;
+      this.apiKeyConfigured = !!response?.configured || webhookConfigured;
     } catch (error) {
       console.warn('[WhatsApp AI] Não foi possível verificar estado da API Key', error);
       this.apiKeyConfigured = false;
@@ -1132,6 +1135,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       let audioBlob = null;
       let audioElement = this.findPlayableAudioElementWithin(messageElement);
       let storeMetadata = null;
+      let messageId = null;
 
       if (audioElement) {
         console.log('[WhatsApp AI] Áudio encontrado diretamente na mensagem');
@@ -1141,7 +1145,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }
 
       if (!audioBlob) {
-        const messageId = getMessageIdFromElement(messageElement);
+        messageId = getMessageIdFromElement(messageElement);
         if (messageId) {
           try {
             console.log('[WhatsApp AI] Solicitando blob via Store para mensagem', messageId);
@@ -1187,7 +1191,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }
 
       if (!audioBlob) {
-        const messageId = getMessageIdFromElement(messageElement);
+        messageId = getMessageIdFromElement(messageElement);
         if (messageId) {
           try {
             console.log('[WhatsApp AI] Tentando fallback final via Store para mensagem', messageId);
@@ -1207,12 +1211,20 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
         throw new Error('Nenhum arquivo de áudio encontrado para transcrever');
       }
 
-      update({ status: 'Enviando áudio para o Whisper...' });
+      update({ status: 'Enviando áudio para transcrição...' });
 
       const mimeType = audioBlob.type || storeMetadata?.mimeType || 'audio/ogg';
-      const transcription = await this.transcribeBlobWithWhisper(audioBlob, mimeType);
+      const metadata = {
+        messageId: messageId || storeMetadata?.id || null,
+        chatId: storeMetadata?.chatId || null,
+        mimeType,
+        size: audioBlob.size || null,
+        timestamp: Date.now()
+      };
 
-      console.log('[WhatsApp AI] Transcrição concluída via Whisper');
+      const transcription = await this.transcribeBlobWithWhisper(audioBlob, mimeType, metadata);
+
+      console.log('[WhatsApp AI] Transcrição concluída');
       return transcription;
     } catch (error) {
       console.error('[WhatsApp AI] ERRO DETALHADO:', error);
@@ -1220,7 +1232,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     }
   }
 
-  async transcribeBlobWithWhisper(audioBlob, mimeType = 'audio/ogg') {
+  async transcribeBlobWithWhisper(audioBlob, mimeType = 'audio/ogg', metadata = {}) {
     if (!this.isBlobLike(audioBlob)) {
       throw new Error('Fonte de áudio inválida');
     }
@@ -1229,11 +1241,20 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     const response = await chrome.runtime.sendMessage({
       type: 'TRANSCRIBIR_AUDIO',
       arrayBuffer,
-      mime: mimeType
+      mime: mimeType,
+      metadata,
+      useWebhook: Boolean(this.settings.transcriptionWebhookUrl),
+      allowFallback: true
     });
 
     if (!response?.ok) {
       throw new Error(response?.error || 'Falha na transcrição');
+    }
+
+    if (response.usedWebhook) {
+      console.log('[WhatsApp AI] Transcrição concluída via webhook configurado');
+    } else {
+      console.log('[WhatsApp AI] Transcrição concluída via Whisper');
     }
 
     return response.text;
