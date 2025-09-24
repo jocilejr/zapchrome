@@ -19,6 +19,60 @@
   user-select: none;
 }
 
+.whatsapp-ai-header-button-wrapper {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.whatsapp-ai-header-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, #25D366, #128C7E);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  box-shadow: 0 6px 18px rgba(37, 211, 102, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.whatsapp-ai-header-button:hover {
+  transform: translateY(-1px);
+  background: linear-gradient(135deg, #128C7E, #25D366);
+  box-shadow: 0 10px 24px rgba(37, 211, 102, 0.3);
+}
+
+.whatsapp-ai-header-button:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.25);
+}
+
+.whatsapp-ai-header-button.loading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.whatsapp-ai-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.whatsapp-ai-header-button svg {
+  color: currentColor;
+}
+
+.whatsapp-ai-header-label {
+  letter-spacing: 0.3px;
+}
+
 .whatsapp-ai-button:hover {
   transform: scale(1.1);
   box-shadow: 0 12px 35px rgba(37, 211, 102, 0.4);
@@ -313,7 +367,11 @@
   flex-wrap: wrap;
 }
 
-.ai-btn {
+.whatsapp-ai-custom-modal .ai-modal-content {
+  max-width: 520px;
+}
+
+.ai-btn { 
   display: flex;
   align-items: center;
   gap: 8px;
@@ -328,6 +386,134 @@
   flex: 1;
   min-width: 140px;
   justify-content: center;
+}
+
+.ai-custom-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-custom-label {
+  font-weight: 600;
+  color: #1F2937;
+  font-size: 14px;
+}
+
+.ai-custom-question {
+  width: 100%;
+  border: 1px solid #D1D5DB;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 110px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ai-custom-question:focus {
+  outline: none;
+  border-color: #128C7E;
+  box-shadow: 0 0 0 3px rgba(18, 140, 126, 0.15);
+}
+
+.ai-custom-context {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #4B5563;
+  user-select: none;
+}
+
+.ai-custom-context input {
+  width: 16px;
+  height: 16px;
+}
+
+.ai-custom-status {
+  min-height: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #4B5563;
+}
+
+.ai-custom-status[data-status="success"] {
+  color: #059669;
+}
+
+.ai-custom-status[data-status="error"] {
+  color: #DC2626;
+}
+
+.ai-custom-status[data-status="warning"] {
+  color: #D97706;
+}
+
+.ai-custom-status[data-status="info"] {
+  color: #2563EB;
+}
+
+.ai-custom-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-custom-result.hidden {
+  display: none;
+}
+
+.ai-custom-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-custom-actions .ai-btn {
+  flex: 1;
+  min-width: 140px;
+}
+
+.ai-custom-copy {
+  background: #F3F4F6;
+  color: #374151;
+  border: 1px solid #D1D5DB;
+}
+
+.ai-custom-copy:hover {
+  background: #E5E7EB;
+}
+
+.ai-custom-use {
+  background: linear-gradient(135deg, #25D366, #128C7E);
+  color: #fff;
+}
+
+.ai-custom-use:hover {
+  background: linear-gradient(135deg, #128C7E, #25D366);
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.25);
+}
+
+.ai-custom-footer {
+  justify-content: flex-end;
+}
+
+.ai-custom-submit {
+  background: linear-gradient(135deg, #2563EB, #1D4ED8);
+  color: #fff;
+}
+
+.ai-custom-submit:hover {
+  background: linear-gradient(135deg, #1D4ED8, #2563EB);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+}
+
+.ai-custom-submit.loading {
+  cursor: progress;
+  opacity: 0.75;
 }
 
 .ai-btn-copy {
