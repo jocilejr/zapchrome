@@ -28,6 +28,7 @@
   transition: all 0.3s ease-in-out;
 }
 
+add-label-above-floating-button-otf8ip
 .whatsapp-ai-button {
   width: 62px;
   height: 62px;
@@ -37,12 +38,14 @@
   background: transparent;
   box-shadow: none;
   display: flex;
+
   align-items: center;
   justify-content: center;
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
   position: relative;
 }
 
+add-label-above-floating-button-otf8ip
 .whatsapp-ai-button:hover {
   transform: translateY(-4px);
 }
@@ -63,10 +66,12 @@
 }
 
 .whatsapp-ai-generate-button:hover {
+
   background: linear-gradient(135deg, #128C7E, #25D366);
   box-shadow: 0 12px 35px rgba(37, 211, 102, 0.4);
 }
 
+add-label-above-floating-button-otf8ip
 .whatsapp-ai-ask-button {
   background: linear-gradient(135deg, #6366F1, #8B5CF6);
   box-shadow: 0 6px 20px rgba(99, 102, 241, 0.35);
@@ -75,6 +80,7 @@
 .whatsapp-ai-ask-button:hover {
   background: linear-gradient(135deg, #8B5CF6, #6366F1);
   box-shadow: 0 12px 35px rgba(99, 102, 241, 0.45);
+
 }
 
 .whatsapp-ai-ask-button .ai-button-tooltip {

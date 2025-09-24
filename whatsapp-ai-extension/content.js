@@ -127,6 +127,7 @@ class WhatsAppAIAssistant {
     this.button = document.createElement('div');
     this.button.className = 'whatsapp-ai-floating-wrapper hidden';
     this.button.innerHTML = `
+add-label-above-floating-button-otf8ip
       <button type="button" class="whatsapp-ai-button whatsapp-ai-ask-button" aria-label="Abrir pergunta personalizada da inteligência artificial">
         <div class="ai-button-content">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -139,6 +140,7 @@ class WhatsAppAIAssistant {
         <div class="ai-button-tooltip">Pergunte a I.A</div>
       </button>
       <button type="button" class="whatsapp-ai-button whatsapp-ai-generate-button" aria-label="Gerar resposta com inteligência artificial">
+
         <div class="ai-button-content">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
@@ -150,8 +152,10 @@ class WhatsAppAIAssistant {
       </button>
     `;
 
+add-label-above-floating-button-otf8ip
     const triggerButton = this.button.querySelector('.whatsapp-ai-generate-button');
     const labelButton = this.button.querySelector('.whatsapp-ai-ask-button');
+
 
     triggerButton?.addEventListener('click', () => {
       console.log('[WhatsApp AI] Botão clicado!');
