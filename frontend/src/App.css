@@ -46,6 +46,7 @@
 }
 
 .ask-ai-fab-button {
+update-style-of-floating-buttons-vdobxi
     width: 64px;
     height: 64px;
     border-radius: 16px;
@@ -55,10 +56,14 @@
     font-size: 1.65rem;
     font-weight: 700;
     letter-spacing: 0.04em;
+update-style-of-floating-buttons-uq0359
+
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+update-style-of-floating-buttons-uq0359
+
     position: relative;
     overflow: hidden;
     box-shadow: 0 18px 36px rgba(30, 64, 175, 0.45), 0 4px 12px rgba(14, 165, 233, 0.25);
@@ -75,10 +80,14 @@
     opacity: 0.7;
     pointer-events: none;
     transition: opacity 0.22s ease;
+update-style-of-floating-buttons-uq0359
+
 }
 
 .ask-ai-fab-button:hover {
     transform: translateY(-4px);
+update-style-of-floating-buttons-uq0359
+
     background: linear-gradient(140deg, #1d4ed8, #0284c7);
     box-shadow: 0 24px 44px rgba(30, 64, 175, 0.5), 0 6px 16px rgba(14, 165, 233, 0.28);
     border-color: rgba(37, 99, 235, 0.32);
@@ -86,6 +95,7 @@
 
 .ask-ai-fab-button:hover::after {
     opacity: 1;
+update-style-of-floating-buttons-uq0359
 }
 
 .ask-ai-fab-button:focus-visible {
@@ -93,11 +103,14 @@
     box-shadow: 0 0 0 3px rgba(148, 197, 255, 0.6), 0 20px 40px rgba(30, 64, 175, 0.45);
 }
 
+
 .ask-ai-fab-button:active {
     transform: translateY(-1px) scale(0.98);
     background: linear-gradient(140deg, #1e3a8a, #0369a1);
     box-shadow: 0 12px 26px rgba(30, 64, 175, 0.45), 0 4px 10px rgba(14, 165, 233, 0.25);
     border-color: rgba(37, 99, 235, 0.38);
+update-style-of-floating-buttons-uq0359
+
 }
 
 .ai-modal-backdrop {
