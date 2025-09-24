@@ -57,30 +57,64 @@
   outline-offset: 3px;
 }
 
+
 .whatsapp-ai-button {
-  width: 62px;
-  height: 62px;
-  border-radius: 50%;
-  border: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  border: 1px solid rgba(12, 73, 50, 0.2);
   cursor: pointer;
-  background: linear-gradient(135deg, #25D366, #128C7E);
-  box-shadow: 0 6px 20px rgba(37, 211, 102, 0.3);
+  background: linear-gradient(135deg, #1fc97c, #0f7d55);
+  box-shadow:
+    0 18px 35px rgba(17, 94, 59, 0.25),
+    0 4px 12px rgba(15, 125, 85, 0.2);
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease,
+    border-color 0.22s ease;
   position: relative;
+  overflow: hidden;
+}
+
+.whatsapp-ai-button::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+  transition: opacity 0.22s ease;
+  opacity: 0.7;
 }
 
 .whatsapp-ai-button:hover {
   transform: translateY(-4px);
-  box-shadow: 0 12px 35px rgba(37, 211, 102, 0.4);
-  background: linear-gradient(135deg, #128C7E, #25D366);
+  background: linear-gradient(135deg, #24d987, #139662);
+  box-shadow:
+    0 24px 45px rgba(17, 94, 59, 0.32),
+    0 6px 18px rgba(15, 125, 85, 0.22);
+  border-color: rgba(12, 73, 50, 0.28);
+}
+
+.whatsapp-ai-button:hover::after {
+  opacity: 1;
 }
 
 .whatsapp-ai-button:focus-visible {
-  outline: 3px solid rgba(255, 255, 255, 0.65);
-  outline-offset: 3px;
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.55),
+    0 20px 40px rgba(17, 94, 59, 0.28);
+}
+
+.whatsapp-ai-button:active {
+  transform: translateY(-1px) scale(0.98);
+  box-shadow:
+    0 10px 22px rgba(17, 94, 59, 0.28),
+    0 3px 10px rgba(15, 125, 85, 0.18);
+  background: linear-gradient(135deg, #1fb171, #0d6f4b);
+  border-color: rgba(12, 73, 50, 0.35);
 }
 
 .whatsapp-ai-button.loading {
@@ -93,6 +127,7 @@
   align-items: center;
   justify-content: center;
   color: white;
+  gap: 6px;
 }
 
 .ai-button-content svg {
