@@ -21,7 +21,7 @@
 - ✅ Geração via OpenAI GPT
 - ✅ Modal com botões de ação
 - ✅ Inserção no campo correto (melhorada)
-- ✅ Reconhecimento básico de áudios
+  - ✅ Coleta das últimas mensagens de texto
 
 ### 🔄 Mudanças na detecção de campo:
 ```javascript
@@ -32,10 +32,10 @@ const isSearch = placeholder.toLowerCase().includes('pesquisar') ||
                 input.closest('[data-testid="chat-list-search"]');
 ```
 
-### 🎵 Status dos áudios:
-- **Detecção**: ✅ Funciona (identifica áudios)
-- **Transcrição**: ❌ Removida temporariamente (causava bugs)
-- **Resposta**: ✅ Responde que recebeu áudio
+### 📝 Estado das mensagens:
+- **Coleta de texto**: ✅ Funciona (identifica as mensagens relevantes)
+- **Áudio**: ❌ Removido — foco agora é 100% em mensagens escritas
+- **Resposta**: ✅ Gera texto contextual
 
 ## 🧪 Para testar v3.2:
 
@@ -60,7 +60,7 @@ Se quiser verificar logs, abra console (F12) e procure por:
 Depois que confirmar que esta versão funciona:
 1. ✅ Primeiro confirmaremos o funcionamento básico
 2. 🔄 Depois melhoraremos a inserção no campo correto
-3. 🎵 Por último, reintegraremos transcrição de áudio
+3. ✍️ Validaremos geração de respostas apenas com mensagens de texto
 
 ---
 

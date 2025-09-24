@@ -5,7 +5,6 @@ class PopupManager {
       apiKey: document.getElementById('apiKey'),
       model: document.getElementById('model'),
       responseStyle: document.getElementById('responseStyle'),
-      transcriptionWebhookUrl: document.getElementById('transcriptionWebhookUrl'),
       saveButton: document.getElementById('saveButton'),
       testButton: document.getElementById('testButton'),
       toggleApiKey: document.getElementById('toggleApiKey'),
@@ -28,7 +27,7 @@ class PopupManager {
   async loadSettings() {
     try {
       const [syncSettings, localSettings] = await Promise.all([
-        chrome.storage.sync.get(['model', 'responseStyle', 'transcriptionWebhookUrl']),
+        chrome.storage.sync.get(['model', 'responseStyle']),
         chrome.storage.local.get('OPENAI_KEY')
       ]);
 
@@ -41,10 +40,6 @@ class PopupManager {
       if (syncSettings.responseStyle) {
         this.elements.responseStyle.value = syncSettings.responseStyle;
       }
-      if (this.elements.transcriptionWebhookUrl) {
-        this.elements.transcriptionWebhookUrl.value = syncSettings.transcriptionWebhookUrl || '';
-      }
-
     } catch (error) {
       this.showStatus('Erro ao carregar configurações', 'error');
     }
@@ -67,9 +62,6 @@ class PopupManager {
     this.elements.apiKey.addEventListener('input', () => this.debounceAutoSave());
     this.elements.model.addEventListener('change', () => this.autoSave());
     this.elements.responseStyle.addEventListener('input', () => this.debounceAutoSave());
-    if (this.elements.transcriptionWebhookUrl) {
-      this.elements.transcriptionWebhookUrl.addEventListener('input', () => this.debounceAutoSave());
-    }
   }
 
   debounceAutoSave() {
@@ -80,13 +72,11 @@ class PopupManager {
   async autoSave() {
     try {
       const apiKey = this.elements.apiKey.value.trim();
-      const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim() || '';
       await Promise.all([
         chrome.storage.local.set({ OPENAI_KEY: apiKey }),
         chrome.storage.sync.set({
           model: this.elements.model.value,
-          responseStyle: this.elements.responseStyle.value.trim(),
-          transcriptionWebhookUrl: webhookUrl
+          responseStyle: this.elements.responseStyle.value.trim()
         })
       ]);
       this.notifyContentScripts();
@@ -99,10 +89,9 @@ class PopupManager {
     const apiKey = this.elements.apiKey.value.trim();
     const model = this.elements.model.value;
     const responseStyle = this.elements.responseStyle.value.trim();
-    const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim() || '';
 
-    if (!apiKey && !webhookUrl) {
-      this.showStatus('Informe a API Key da OpenAI ou um webhook de transcrição', 'error');
+    if (!apiKey) {
+      this.showStatus('Informe a API Key da OpenAI', 'error');
       return;
     }
 
@@ -118,8 +107,7 @@ class PopupManager {
         chrome.storage.local.set({ OPENAI_KEY: apiKey }),
         chrome.storage.sync.set({
           model,
-          responseStyle,
-          transcriptionWebhookUrl: webhookUrl
+          responseStyle
         })
       ]);
 
@@ -138,14 +126,9 @@ class PopupManager {
   async testAPI() {
     const apiKey = this.elements.apiKey.value.trim();
     const model = this.elements.model.value;
-    const webhookUrl = this.elements.transcriptionWebhookUrl?.value.trim();
 
     if (!apiKey) {
-      if (webhookUrl) {
-        this.showStatus('Configure uma API Key para testar a OpenAI. O webhook será usado apenas na transcrição.', 'warning');
-      } else {
-        this.showStatus('Insira sua API Key primeiro', 'error');
-      }
+      this.showStatus('Insira sua API Key primeiro', 'error');
       return;
     }
 
@@ -219,7 +202,7 @@ class PopupManager {
 
   showStatus(message, type = 'info') {
     this.elements.status.textContent = message;
-      this.elements.status.className = `status ${type}`;
+    this.elements.status.className = `status ${type}`;
 
     if (type === 'success' || type === 'error' || type === 'warning') {
       setTimeout(() => {

@@ -9,27 +9,26 @@
 
 ### ✅ **2. Reposicionamento do botão**
 - **Problema**: Botão estava atrapalhando funções essenciais
-- **Solução**: 
+- **Solução**:
   - Movido de `bottom: 30px` para `bottom: 120px`
-  - Reduzido de `60px` para `50px` 
+  - Reduzido de `60px` para `50px`
   - Ajustado `right: 20px` para não sobrepor outros elementos
 - **Resultado**: Botão em posição menos intrusiva
 
-### ✅ **3. Reconhecimento de mensagens de áudio**
-- **Problema**: IA não sabia quando havia áudio na conversa
-- **Solução**: 
-  - Detecção automática de mensagens de áudio
-  - Identificação da duração do áudio
-  - Prompt especial quando última mensagem é áudio
-- **Resultado**: IA responde adequadamente quando recebe áudios
+### ✅ **3. Contexto mais inteligente para texto**
+- **Problema**: IA não entendia quando faltava contexto textual recente
+- **Solução**:
+  - Captura automática das últimas mensagens de texto
+  - Limpeza de duplicidades e mensagens vazias
+  - Prompt reforçado com histórico real da conversa
+- **Resultado**: IA responde levando em conta o que foi escrito recentemente
 
 ## 🎯 Novas funcionalidades:
 
-### 🎵 **Análise de mensagens de áudio**
-- Detecta automaticamente `[data-testid="audio-play-button"]`
-- Mostra duração do áudio no contexto
-- Gera resposta apropriada reconhecendo que é um áudio
-- Pede educadamente para o contato escrever o conteúdo
+### ✍️ **Análise de mensagens recentes**
+- Considera automaticamente até 8 mensagens de texto
+- Mantém a distinção entre mensagens enviadas por você e pelo contato
+- Gera respostas naturais coerentes com o tom da conversa
 
 ### 🎨 **Melhor posicionamento**
 - Botão menor e menos intrusivo (50x50px)
@@ -43,20 +42,20 @@
 - Múltiplos seletores para maior compatibilidade
 - Logs detalhados para debug
 
-## 📱 Como funciona com áudios:
+## 📱 Como funciona com mensagens de texto:
 
-### Quando alguém envia um áudio:
-1. **Detecção**: Extensão identifica automaticamente
-2. **Contexto**: Adiciona `[ÁUDIO - 0:15]` na conversa
-3. **Resposta inteligente**: IA reconhece que é áudio
-4. **Resposta natural**: "Oi! Recebi seu áudio, mas você poderia escrever rapidamente o que disse? Obrigado!"
+### Quando alguém envia uma mensagem:
+1. **Captura**: A extensão identifica os blocos de texto relevantes
+2. **Contexto**: Monta um histórico com remetente + mensagem
+3. **Resposta inteligente**: IA utiliza o histórico textual para sugerir a melhor resposta
+4. **Resposta natural**: Sugestões prontas para copiar ou inserir no chat
 
 ### Exemplo de conversa:
 ```
 Contato: Oi como vai?
 Você: Tudo bem! E você?
-Contato: [ÁUDIO - 0:32] (mensagem de áudio)
-IA: Oi! Recebi seu áudio, mas não consegui ouvir agora. Você poderia me escrever o que disse? 😊
+Contato: Lembrei de te avisar que a reunião foi remarcada para amanhã.
+IA: Obrigado pelo aviso! Amanhã estarei lá no mesmo horário, combinado?
 ```
 
 ## 🧪 Para testar a v2.3:
@@ -65,16 +64,16 @@ IA: Oi! Recebi seu áudio, mas não consegui ouvir agora. Você poderia me escre
 2. **Recarregue** a extensão em `chrome://extensions/`
 3. **Teste o posicionamento**: Botão deve estar mais alto e menor
 4. **Teste inserção**: Deve inserir na conversa, não na busca
-5. **Teste áudio**: Alguém envie um áudio e clique no botão IA
+5. **Teste contexto**: Gere respostas em conversas com múltiplas mensagens recentes
 
 ## 🔧 Melhorias técnicas:
 
 - **Filtros anti-busca**: Evita `[data-testid="chat-list-search"]`
 - **Verificação de visibilidade**: `offsetParent !== null`
-- **Detecção de áudio robusta**: Múltiplos seletores
+- **Coleta de texto robusta**: Diversos seletores para mensagens legíveis
 - **Logs melhorados**: Debug mais detalhado
 - **CSS otimizado**: Posicionamento não intrusivo
 
 ---
 
-**🎉 Resultado**: Extensão mais precisa, menos intrusiva e com suporte a áudios!
+**🎉 Resultado**: Extensão mais precisa, menos intrusiva e focada em respostas contextuais!**
