@@ -127,20 +127,8 @@ class WhatsAppAIAssistant {
     this.button = document.createElement('div');
     this.button.className = 'whatsapp-ai-floating-wrapper hidden';
     this.button.innerHTML = `
-add-label-above-floating-button-otf8ip
-      <button type="button" class="whatsapp-ai-button whatsapp-ai-ask-button" aria-label="Abrir pergunta personalizada da inteligência artificial">
-        <div class="ai-button-content">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M12 21C16.9706 21 21 16.9706 21 12C21 7.02944 16.9706 3 12 3C7.02944 3 3 7.02944 3 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 17V17.01" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M12 13.5C12 11.8431 13.3431 10.5 15 10.5C16.6569 10.5 18 11.8431 18 13.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M6.5 9.5C7.60457 8.39543 9.20827 8 10.709 8.41421" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <div class="ai-button-tooltip">Pergunte a I.A</div>
-      </button>
-      <button type="button" class="whatsapp-ai-button whatsapp-ai-generate-button" aria-label="Gerar resposta com inteligência artificial">
-
+      <button type="button" class="whatsapp-ai-floating-label" aria-label="Pergunte a I.A">Pergunte a I.A</button>
+      <button type="button" class="whatsapp-ai-button" aria-label="Gerar resposta com inteligência artificial">
         <div class="ai-button-content">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
@@ -152,10 +140,8 @@ add-label-above-floating-button-otf8ip
       </button>
     `;
 
-add-label-above-floating-button-otf8ip
-    const triggerButton = this.button.querySelector('.whatsapp-ai-generate-button');
-    const labelButton = this.button.querySelector('.whatsapp-ai-ask-button');
-
+    const triggerButton = this.button.querySelector('.whatsapp-ai-button');
+    const labelButton = this.button.querySelector('.whatsapp-ai-floating-label');
 
     triggerButton?.addEventListener('click', () => {
       console.log('[WhatsApp AI] Botão clicado!');
