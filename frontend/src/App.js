@@ -82,9 +82,17 @@ const Home = () => {
   return (
     <div>
       <header className="App-header">
-        <button className="ask-ai-button" type="button" onClick={() => setIsChatOpen(true)}>
-          Perguntar à IA
-        </button>
+        <div className="ask-ai-fab">
+          <span className="ask-ai-label-text">Pergunte a I.A</span>
+          <button
+            className="ask-ai-fab-button"
+            type="button"
+            onClick={() => setIsChatOpen(true)}
+            aria-label="Abrir chat com a inteligência artificial"
+          >
+            IA
+          </button>
+        </div>
         <a
           className="App-link"
           href="https://emergent.sh"

@@ -155,23 +155,30 @@ class WhatsAppAIAssistant {
     console.log('[WhatsApp AI] Criando botão flutuante...');
 
     this.button = document.createElement('div');
-    this.button.className = 'whatsapp-ai-button hidden';
+    this.button.className = 'whatsapp-ai-floating-wrapper hidden';
     this.button.innerHTML = `
-      <div class="ai-button-content">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-        <span>IA</span>
-      </div>
-      <div class="ai-button-tooltip">Gerar Resposta com IA</div>
+      <span class="whatsapp-ai-floating-label">Pergunte a I.A</span>
+      <button type="button" class="whatsapp-ai-button" aria-label="Gerar resposta com inteligência artificial">
+        <div class="ai-button-content">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+          <span>IA</span>
+        </div>
+        <div class="ai-button-tooltip">Gerar Resposta com IA</div>
+      </button>
     `;
 
-    this.button.addEventListener('click', () => {
+    const triggerButton = this.button.querySelector('.whatsapp-ai-button');
+
+    triggerButton?.addEventListener('click', () => {
       console.log('[WhatsApp AI] Botão clicado!');
       this.generateResponse();
     });
+
+    this.buttonTrigger = triggerButton;
 
     document.body.appendChild(this.button);
     console.log('[WhatsApp AI] Botão criado e adicionado ao DOM');
@@ -312,8 +319,8 @@ class WhatsAppAIAssistant {
       return;
     }
 
-    if (this.button) {
-      this.button.classList.add('loading');
+    if (this.buttonTrigger) {
+      this.buttonTrigger.classList.add('loading');
     }
     this.showNotification('✍️ Analisando conversa recente...', 'info');
 
@@ -363,8 +370,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       this.showNotification(errorMessage, 'error');
     } finally {
-      if (this.button) {
-        this.button.classList.remove('loading');
+      if (this.buttonTrigger) {
+        this.buttonTrigger.classList.remove('loading');
       }
     }
   }
