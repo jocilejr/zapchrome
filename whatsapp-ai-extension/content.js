@@ -2,9 +2,7 @@ class WhatsAppAIAssistant {
   constructor() {
     this.isActive = false;
     this.button = null;
-    this.headerButton = null;
-    this.headerButtonWrapper = null;
-    this.headerButtonWatcher = null;
+    this.labelButton = null;
     this.settings = {
       model: 'gpt-4o',
       responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa'
@@ -18,7 +16,6 @@ class WhatsAppAIAssistant {
     console.log('[WhatsApp AI] Inicializando...');
     await this.loadSettings();
     this.createFloatingButton();
-    this.ensureHeaderButton();
     this.observeConversationChanges();
 
     chrome.runtime.onMessage.addListener((message) => {
@@ -109,9 +106,6 @@ class WhatsAppAIAssistant {
     console.log(`[WhatsApp AI] Estado - Input: ${!!messageInput}, Ativa: ${isConversationOpen}`);
 
     if (isConversationOpen) {
-      this.ensureHeaderButton();
-      this.startHeaderButtonWatcher();
-
       if (!this.isActive) {
         console.log('[WhatsApp AI] Mostrando botão...');
         this.showButton();
@@ -122,30 +116,6 @@ class WhatsAppAIAssistant {
       if (this.isActive) {
         this.hideButton();
       }
-
-      this.removeHeaderButton();
-      this.stopHeaderButtonWatcher();
-    }
-  }
-
-  startHeaderButtonWatcher() {
-    if (this.headerButtonWatcher) {
-      return;
-    }
-
-    this.headerButtonWatcher = setInterval(() => {
-      try {
-        this.ensureHeaderButton();
-      } catch (error) {
-        console.warn('[WhatsApp AI] Falha ao manter botão do cabeçalho', error);
-      }
-    }, 1500);
-  }
-
-  stopHeaderButtonWatcher() {
-    if (this.headerButtonWatcher) {
-      clearInterval(this.headerButtonWatcher);
-      this.headerButtonWatcher = null;
     }
   }
 
@@ -155,23 +125,42 @@ class WhatsAppAIAssistant {
     console.log('[WhatsApp AI] Criando botão flutuante...');
 
     this.button = document.createElement('div');
-    this.button.className = 'whatsapp-ai-button hidden';
+    this.button.className = 'whatsapp-ai-floating-wrapper hidden';
     this.button.innerHTML = `
-      <div class="ai-button-content">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-        <span>IA</span>
-      </div>
-      <div class="ai-button-tooltip">Gerar Resposta com IA</div>
+      <button type="button" class="whatsapp-ai-floating-label" aria-label="Pergunte a I.A">Pergunte a I.A</button>
+      <button type="button" class="whatsapp-ai-button" aria-label="Gerar resposta com inteligência artificial">
+        <div class="ai-button-content">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="ai-button-tooltip">Gerar Resposta com IA</div>
+      </button>
     `;
 
-    this.button.addEventListener('click', () => {
+    const triggerButton = this.button.querySelector('.whatsapp-ai-button');
+    const labelButton = this.button.querySelector('.whatsapp-ai-floating-label');
+
+    triggerButton?.addEventListener('click', () => {
       console.log('[WhatsApp AI] Botão clicado!');
       this.generateResponse();
     });
+
+    labelButton?.addEventListener('click', async () => {
+      console.log('[WhatsApp AI] Abertura de pergunta personalizada solicitada');
+      const hasApiKey = await this.ensureApiKeyConfigured();
+      if (!hasApiKey) {
+        this.showNotification('⚠️ Configure sua API Key da OpenAI primeiro!', 'error');
+        return;
+      }
+
+      this.openCustomQuestionModal();
+    });
+
+    this.buttonTrigger = triggerButton;
+    this.labelButton = labelButton;
 
     document.body.appendChild(this.button);
     console.log('[WhatsApp AI] Botão criado e adicionado ao DOM');
@@ -184,108 +173,6 @@ class WhatsAppAIAssistant {
     setTimeout(() => this.checkConversationState(), 1000);
   }
 
-  createHeaderButtonElement() {
-    if (this.headerButton) {
-      return this.headerButton;
-    }
-
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'whatsapp-ai-header-button';
-    button.innerHTML = `
-      <span class="whatsapp-ai-header-icon" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-      </span>
-      <span class="whatsapp-ai-header-label">Perguntar à IA</span>
-    `;
-
-    button.addEventListener('click', async () => {
-      const hasApiKey = await this.ensureApiKeyConfigured();
-      if (!hasApiKey) {
-        this.showNotification('⚠️ Configure sua API Key da OpenAI primeiro!', 'error');
-        return;
-      }
-
-      this.openCustomQuestionModal();
-    });
-
-    this.headerButton = button;
-    return button;
-  }
-
-  findConversationHeader() {
-    const selectors = [
-      '[data-testid="conversation-header"]',
-      '[data-testid="conversation-info-header"]',
-      '[data-testid="conversation-panel-header"]',
-      '#main header',
-      'header[role="banner"]'
-    ];
-
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        return element;
-      }
-    }
-
-    return null;
-  }
-
-  findHeaderButtonTarget(header) {
-    if (!header) return null;
-
-    const targetSelectors = [
-      '[data-testid="conversation-header-actions"]',
-      '[data-testid="conversation-panel-actions"]',
-      '[class*="header"] [role="button"]:last-of-type'
-    ];
-
-    for (const selector of targetSelectors) {
-      const element = header.querySelector(selector);
-      if (element) {
-        return element.parentElement || element;
-      }
-    }
-
-    return header;
-  }
-
-  ensureHeaderButton() {
-    const header = this.findConversationHeader();
-    const target = this.findHeaderButtonTarget(header);
-
-    if (!target || !header) {
-      this.removeHeaderButton();
-      return;
-    }
-
-    const button = this.createHeaderButtonElement();
-
-    if (this.headerButtonWrapper && this.headerButtonWrapper.parentNode !== target) {
-      this.removeHeaderButton();
-    }
-
-    if (!this.headerButtonWrapper) {
-      const wrapper = document.createElement('div');
-      wrapper.className = 'whatsapp-ai-header-wrapper';
-      wrapper.appendChild(button);
-      target.appendChild(wrapper);
-      this.headerButtonWrapper = wrapper;
-    } else if (!this.headerButtonWrapper.contains(button)) {
-      this.headerButtonWrapper.appendChild(button);
-    }
-  }
-
-  removeHeaderButton() {
-    if (this.headerButtonWrapper?.parentNode) {
-      this.headerButtonWrapper.parentNode.removeChild(this.headerButtonWrapper);
-    }
-  }
 
   showButton() {
     console.log('[WhatsApp AI] Tentando mostrar botão...');
@@ -312,8 +199,8 @@ class WhatsAppAIAssistant {
       return;
     }
 
-    if (this.button) {
-      this.button.classList.add('loading');
+    if (this.buttonTrigger) {
+      this.buttonTrigger.classList.add('loading');
     }
     this.showNotification('✍️ Analisando conversa recente...', 'info');
 
@@ -363,8 +250,8 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
 
       this.showNotification(errorMessage, 'error');
     } finally {
-      if (this.button) {
-        this.button.classList.remove('loading');
+      if (this.buttonTrigger) {
+        this.buttonTrigger.classList.remove('loading');
       }
     }
   }
