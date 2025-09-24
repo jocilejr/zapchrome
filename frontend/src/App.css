@@ -27,30 +27,48 @@
     color: #61dafb;
 }
 
-.ask-ai-button {
-    position: absolute;
-    top: 1.5rem;
+.ask-ai-fab {
+    position: fixed;
+    bottom: 1.5rem;
     right: 1.5rem;
-    padding: 0.75rem 1.5rem;
-    border-radius: 9999px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    z-index: 998;
+}
+
+.ask-ai-label-text {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #f8fafc;
+    text-shadow: 0 2px 4px rgba(15, 15, 16, 0.6);
+}
+
+.ask-ai-fab-button {
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
     border: none;
     background: linear-gradient(135deg, #6a5acd, #00bcd4);
     color: #ffffff;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 2rem;
+    font-weight: 700;
     cursor: pointer;
-    box-shadow: 0 10px 30px rgba(0, 188, 212, 0.3);
+    box-shadow: 0 12px 32px rgba(0, 188, 212, 0.35);
+    display: grid;
+    place-items: center;
     transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-.ask-ai-button:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 14px 34px rgba(106, 90, 205, 0.35);
+.ask-ai-fab-button:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 16px 40px rgba(106, 90, 205, 0.4);
 }
 
-.ask-ai-button:focus {
+.ask-ai-fab-button:focus {
     outline: 2px solid rgba(255, 255, 255, 0.6);
-    outline-offset: 2px;
+    outline-offset: 3px;
 }
 
 .ai-modal-backdrop {
