@@ -20,9 +20,8 @@
     </div>
 
     <div class="content">
-      <div class="tabs">
+      <div class="tabs single">
         <button class="tab-button active" data-tab-button data-tab="general">Geral</button>
-        <button class="tab-button" data-tab-button data-tab="transcription">Transcrição</button>
       </div>
 
       <div class="tab-content active" data-tab="general">
@@ -62,20 +61,6 @@
         </div>
       </div>
 
-      <div class="tab-content" data-tab="transcription">
-        <div class="section">
-          <label for="transcriptionWebhookUrl">Webhook de Transcrição (n8n):</label>
-          <input type="url" id="transcriptionWebhookUrl" placeholder="https://seu-servidor.n8n.cloud/webhook" />
-          <div class="help-text">
-            Informe a URL do fluxo que receberá o áudio. Se deixar vazio, a transcrição usará o Whisper padrão da OpenAI.
-          </div>
-        </div>
-        <div class="webhook-info">
-          <p>O webhook recebe o arquivo (campo <strong>file</strong>) e um JSON de metadados (campo <strong>metadata</strong>).</p>
-          <p>Retorne <code>{ "text": "sua transcrição" }</code> ou texto puro com a transcrição para continuar o fluxo.</p>
-        </div>
-      </div>
-
       <div class="actions">
         <button id="saveButton" class="save-btn">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -104,7 +89,7 @@
           <li>Defina o estilo das respostas</li>
           <li>Abra uma conversa no WhatsApp Web</li>
           <li>Clique no botão IA no canto inferior direito</li>
-          <li>A extensão transcrevará áudios automaticamente</li>
+          <li>A extensão analisará as mensagens de texto recentes da conversa</li>
         </ol>
       </div>
     </div>

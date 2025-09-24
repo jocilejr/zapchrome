@@ -2,16 +2,14 @@
   "manifest_version": 3,
   "name": "WhatsApp AI Assistant",
   "version": "4.1.0",
-  "description": "Gera respostas personalizadas para WhatsApp Web usando OpenAI com transcrição de áudio funcional",
+  "description": "Gera respostas personalizadas para WhatsApp Web usando OpenAI e contexto das mensagens recentes",
   "permissions": [
     "storage",
     "activeTab"
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://api.openai.com/*",
-    "https://*/*",
-    "http://*/*"
+    "https://api.openai.com/*"
   ],
   "content_scripts": [
     {
@@ -36,7 +34,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "page-store.js"],
+      "resources": ["icons/*"],
       "matches": ["https://web.whatsapp.com/*"]
     }
   ]
