@@ -486,8 +486,6 @@ class WhatsAppAIAssistant {
   constructor() {
     this.isActive = false;
     this.button = null;
-    this.headerButton = null;
-    this.headerButtonWrapper = null;
     this.settings = {
       model: 'gpt-4o',
       responseStyle: 'Responda de forma natural e contextual, mantendo o tom da conversa',
@@ -503,7 +501,6 @@ class WhatsAppAIAssistant {
     console.log('[WhatsApp AI] Inicializando...');
     await this.loadSettings();
     this.createFloatingButton();
-    this.ensureHeaderButton();
     this.observeConversationChanges();
 
     chrome.runtime.onMessage.addListener((message) => {
@@ -594,20 +591,15 @@ class WhatsAppAIAssistant {
     }
     
     const isConversationOpen = messageInput !== null;
-
+    
     console.log(`[WhatsApp AI] Estado - Input: ${!!messageInput}, Ativa: ${isConversationOpen}`);
-
-    if (isConversationOpen) {
-      this.ensureHeaderButton();
-
-      if (!this.isActive) {
-        console.log('[WhatsApp AI] Mostrando botão...');
-        this.showButton();
-      }
+    
+    if (isConversationOpen && !this.isActive) {
+      console.log('[WhatsApp AI] Mostrando botão...');
+      this.showButton();
     } else if (!isConversationOpen && this.isActive) {
       console.log('[WhatsApp AI] Escondendo botão...');
       this.hideButton();
-      this.removeHeaderButton();
     }
   }
 
@@ -646,114 +638,6 @@ class WhatsAppAIAssistant {
     
     // Força uma verificação do estado após criar o botão
     setTimeout(() => this.checkConversationState(), 1000);
-  }
-
-  createHeaderButtonElement() {
-    if (this.headerButton) {
-      return this.headerButton;
-    }
-
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'whatsapp-ai-header-button';
-    button.innerHTML = `
-      <span class="whatsapp-ai-header-icon" aria-hidden="true">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-        </svg>
-      </span>
-      <span class="whatsapp-ai-header-label">Perguntar à IA</span>
-    `;
-
-    button.addEventListener('click', async () => {
-      const hasApiKey = await this.ensureApiKeyConfigured();
-      if (!hasApiKey) {
-        this.showNotification('⚠️ Configure sua API Key da OpenAI primeiro!', 'error');
-        return;
-      }
-
-      this.openCustomQuestionModal();
-    });
-
-    this.headerButton = button;
-    return button;
-  }
-
-  findConversationHeader() {
-    const selectors = [
-      '[data-testid="conversation-header"]',
-      '[data-testid="conversation-info-header"]',
-      '[data-testid="conversation-panel-header"]',
-      '#main header',
-      'header[role="banner"]'
-    ];
-
-    for (const selector of selectors) {
-      const element = document.querySelector(selector);
-      if (element) {
-        return element;
-      }
-    }
-
-    return null;
-  }
-
-  findHeaderButtonTarget(header) {
-    if (!header) return null;
-
-    const targetSelectors = [
-      '[data-testid="conversation-header-actions"]',
-      '[data-testid="conversation-panel-actions"]',
-      '[class*="header"] [role="button"]:last-of-type'
-    ];
-
-    for (const selector of targetSelectors) {
-      const element = header.querySelector(selector);
-      if (element) {
-        return element.parentElement || element;
-      }
-    }
-
-    return header;
-  }
-
-  ensureHeaderButton() {
-    const header = this.findConversationHeader();
-    const target = this.findHeaderButtonTarget(header);
-
-    if (!target || !header) {
-      this.removeHeaderButton();
-      return;
-    }
-
-    const button = this.createHeaderButtonElement();
-
-    if (!this.headerButtonWrapper) {
-      this.headerButtonWrapper = document.createElement('div');
-      this.headerButtonWrapper.className = 'whatsapp-ai-header-button-wrapper';
-    }
-
-    document.querySelectorAll('.whatsapp-ai-header-button-wrapper').forEach((wrapper) => {
-      if (wrapper !== this.headerButtonWrapper) {
-        wrapper.remove();
-      }
-    });
-
-    if (!this.headerButtonWrapper.contains(button)) {
-      this.headerButtonWrapper.appendChild(button);
-    }
-
-    if (!target.contains(this.headerButtonWrapper)) {
-      target.appendChild(this.headerButtonWrapper);
-    }
-  }
-
-  removeHeaderButton() {
-    if (this.headerButtonWrapper?.parentNode) {
-      this.headerButtonWrapper.parentNode.removeChild(this.headerButtonWrapper);
-    }
   }
 
   showButton() {
@@ -1409,168 +1293,6 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
     return response.text?.trim?.() ?? response.text;
   }
 
-  async askCustomQuestion(question, { includeContext = true } = {}) {
-    const trimmedQuestion = question?.trim?.();
-    if (!trimmedQuestion) {
-      throw new Error('Digite uma pergunta para a IA.');
-    }
-
-    const hasApiKey = await this.ensureApiKeyConfigured();
-    if (!hasApiKey) {
-      throw new Error('Configure sua API Key da OpenAI no popup da extensão.');
-    }
-
-    const promptParts = [];
-
-    if (this.settings?.responseStyle) {
-      promptParts.push(this.settings.responseStyle);
-    }
-
-    if (includeContext) {
-      const contextMessages = await this.getTextOnlyMessages(10);
-      if (contextMessages.length > 0) {
-        promptParts.push('Contexto recente da conversa no WhatsApp:');
-        promptParts.push(contextMessages.join('\n'));
-      }
-    }
-
-    promptParts.push('Pergunta personalizada do usuário:');
-    promptParts.push(trimmedQuestion);
-    promptParts.push('Responda de forma clara e útil em português brasileiro.');
-
-    const prompt = promptParts.join('\n\n');
-    return this.callOpenAI(prompt);
-  }
-
-  openCustomQuestionModal() {
-    const existingModal = document.querySelector('.whatsapp-ai-custom-modal');
-    if (existingModal) {
-      existingModal.remove();
-    }
-
-    const modal = document.createElement('div');
-    modal.className = 'whatsapp-ai-modal whatsapp-ai-custom-modal';
-    modal.innerHTML = `
-      <div class="ai-modal-overlay">
-        <div class="ai-modal-content">
-          <div class="ai-modal-header">
-            <h3>Perguntar à IA</h3>
-            <button class="ai-modal-close" type="button">&times;</button>
-          </div>
-          <div class="ai-modal-body ai-custom-body">
-            <label class="ai-custom-label" for="whatsapp-ai-custom-question">Digite sua pergunta personalizada:</label>
-            <textarea id="whatsapp-ai-custom-question" class="ai-custom-question" rows="5" placeholder="Ex: Qual a melhor forma de responder a última mensagem?" ></textarea>
-            <label class="ai-custom-context">
-              <input type="checkbox" class="ai-custom-context-checkbox" checked />
-              Incluir as últimas mensagens de texto como contexto
-            </label>
-            <div class="ai-custom-status" role="status"></div>
-            <div class="ai-custom-result hidden">
-              <div class="ai-response-text"></div>
-              <div class="ai-custom-actions">
-                <button class="ai-btn ai-custom-copy" type="button">📄 Copiar</button>
-                <button class="ai-btn ai-custom-use" type="button">✅ Usar no chat</button>
-              </div>
-            </div>
-          </div>
-          <div class="ai-modal-footer ai-custom-footer">
-            <button class="ai-btn ai-custom-submit" type="button">Perguntar</button>
-          </div>
-        </div>
-      </div>
-    `;
-
-    const closeButton = modal.querySelector('.ai-modal-close');
-    const overlay = modal.querySelector('.ai-modal-overlay');
-    const submitButton = modal.querySelector('.ai-custom-submit');
-    const questionField = modal.querySelector('.ai-custom-question');
-    const statusField = modal.querySelector('.ai-custom-status');
-    const resultWrapper = modal.querySelector('.ai-custom-result');
-    const resultText = modal.querySelector('.ai-custom-result .ai-response-text');
-    const contextCheckbox = modal.querySelector('.ai-custom-context-checkbox');
-    const copyButton = modal.querySelector('.ai-custom-copy');
-    const useButton = modal.querySelector('.ai-custom-use');
-
-    const closeModal = () => {
-      modal.remove();
-    };
-
-    closeButton.addEventListener('click', closeModal);
-    overlay.addEventListener('click', (event) => {
-      if (event.target === overlay) {
-        closeModal();
-      }
-    });
-
-    const setStatus = (message, type = 'info') => {
-      statusField.textContent = message || '';
-      statusField.dataset.status = type;
-    };
-
-    const toggleLoading = (isLoading) => {
-      submitButton.disabled = isLoading;
-      submitButton.classList.toggle('loading', isLoading);
-    };
-
-    const handleSubmit = async (event) => {
-      event?.preventDefault?.();
-
-      const question = questionField.value;
-
-      try {
-        toggleLoading(true);
-        setStatus('Consultando a OpenAI...', 'info');
-        resultWrapper.classList.add('hidden');
-
-        const answer = await this.askCustomQuestion(question, {
-          includeContext: contextCheckbox.checked
-        });
-
-        if (answer) {
-          resultText.textContent = answer;
-          resultWrapper.classList.remove('hidden');
-          setStatus('Resposta recebida!', 'success');
-        } else {
-          resultWrapper.classList.add('hidden');
-          setStatus('A IA não retornou uma resposta.', 'warning');
-        }
-      } catch (error) {
-        console.error('[WhatsApp AI] Erro ao fazer pergunta personalizada', error);
-        resultWrapper.classList.add('hidden');
-        setStatus(error?.message || 'Não foi possível obter uma resposta.', 'error');
-      } finally {
-        toggleLoading(false);
-      }
-    };
-
-    submitButton.addEventListener('click', handleSubmit);
-    questionField.addEventListener('keydown', (event) => {
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        handleSubmit(event);
-      }
-    });
-
-    copyButton.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(resultText.textContent || '');
-        setStatus('Resposta copiada para a área de transferência!', 'success');
-      } catch (error) {
-        setStatus('Não foi possível copiar o texto.', 'error');
-      }
-    });
-
-    useButton.addEventListener('click', () => {
-      if (resultText.textContent) {
-        this.insertResponse(resultText.textContent);
-        setStatus('Resposta adicionada no campo de mensagem.', 'success');
-      }
-    });
-
-    document.body.appendChild(modal);
-    setTimeout(() => modal.classList.add('show'), 50);
-    setTimeout(() => questionField.focus(), 150);
-  }
-
   insertResponse(text) {
     console.log('[WhatsApp AI] Inserindo resposta...');
     
@@ -1731,6 +1453,7 @@ IMPORTANTE: Responda APENAS com a mensagem que deveria ser enviada. Não inclua 
       }, 300);
     }, 3000);
   }
+}
 
 // Inicialização
 if (document.readyState === 'loading') {
